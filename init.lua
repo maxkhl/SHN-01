@@ -1,4 +1,4 @@
---[[     Welcome to the SHN-O1
+--[[     Welcome to SHN-O1
   ███████╗██╗  ██╗███╗   ██╗       ██████╗  ██╗
   ██╔════╝██║  ██║████╗  ██║      ██╔═████╗███║
   ███████╗███████║██╔██╗ ██║█████╗██║██╔██║╚██║
@@ -69,7 +69,7 @@ end
 -- Loads a lua file, executes it and returns the result
 function includeCore(absolutePath, env)
     local code, path = readFile(absolutePath)
-    local chunk, err = load(code, "=" .. path, nil, _G)
+    local chunk, err = load(tostring(code), "=" .. path, nil, _G)
     if not chunk then error("Failed to compile " .. path .. ": " .. tostring(err)) end
     return chunk()
 end

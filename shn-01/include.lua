@@ -57,7 +57,7 @@ function include(relativePath, origin)
         include(relativePathSub, env.baseDir)
     end
 
-    local chunk, err = load(code, "=" .. fullPath, nil, env)
+    local chunk, err = load(tostring(code), "=" .. fullPath, nil, env)
     if not chunk then
         error("Failed to compile " .. fullPath .. ": " .. tostring(err))
     end

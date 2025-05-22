@@ -1,0 +1,20 @@
+{
+    "Lua.diagnostics.globals": [
+        "baseDir",
+        "component",
+        "getComponent",
+        "fileSystem",
+        "computer",
+        "readFile",
+        "includeCore",
+        "clipboard",
+        "file",
+        "globalEvents",
+        "getAbsoluteFilePath",
+        "include",
+        "requireBuffer",
+        "classBuffer",
+        "new",
+        "visualLength"
+    ]
+}
