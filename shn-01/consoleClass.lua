@@ -1,0 +1,705 @@
+
+local console = {}
+console.__index = console
+
+local gpu = getComponent("gpu")
+
+local database = require("systems/database.lua")
+
+--local keyboard = require("keyboard")
+--local event = require("event")
+
+-- Constructor for the console
+function console.new(positionX, positionY, width, height)
+    local self = setmetatable({}, console)
+
+    self.messageBufferSize = 100
+    self.messages = {}
+
+    self.commandHistoryCursor = 0
+    self.commandHistoryBufferSize = 10
+    self.commandHistory = {}
+    for i = 1, self.commandHistoryBufferSize do
+        local command = database:getKey("console", "com" .. i)
+        if command then
+            table.insert(self.commandHistory, command)
+        end
+    end
+
+    self.input = ""
+    self.drawBuffer = nil
+
+    self.inputCursor = 1
+
+    self.running = false
+
+    self.title = "Console"
+
+    self.positionX = positionX
+    self.positionY = positionY
+    self.width = width
+    self.height = height
+
+    self.background = database:getKey("console", "background") or 0x000000
+    self.foreground = database:getKey("console", "foreground") or 0xFFFFFF
+    if gpu.getDepth() == 1 then -- no colors supported -> fallback
+        self.background = 0x000000
+        self.foreground = 0xFFFFFF
+    end
+
+    self.verticalScroll = 0
+    self.horizontalScroll = 0
+    self.onKeyDownEventId = nil
+    self.onScrollEventId = nil
+
+    self.unseenMessages = false
+
+    self.commands = {
+        ["COMMANDS"] = {
+            description = "Shows all available commands",
+            run = function(self)
+                local function log_commands(commands, indent)
+                    for name, command in pairs(commands) do
+                        if name ~= "run" and name ~= "description" then
+                            if command.description then
+                                self:log(indent .. name .. " - " .. command.description)
+                            else
+                                self:log(indent .. name)
+                            end
+
+                            -- If this command has nested subcommands, recurse
+                            for key, value in pairs(command) do
+                                if type(value) == "table" and key ~= "run" and key ~= "description" then
+                                    log_commands({ [key] = value }, indent .. "|-")
+                                end
+                            end
+                        end
+                    end
+                end
+
+                self:log("Available commands:")
+                log_commands(self.commands, "")
+            end
+        },
+        ["LOREM"] = {
+            description = "Prints lorem ipsum text",
+            run = function(self)
+                self:log("Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.")
+            end
+        },
+        ["CONSOLE"] = {
+            description = "Console functions",
+            ["STYLE"]= {
+                description = "Functions to change the consoles style",
+                ["RESET"] = {
+                    description = "Resets console style to default",
+                    run = function(self)
+                        self.background = 0x000000
+                        self.foreground = 0xFFFFFF
+                        database:setKey("console", "background", nil)
+                        database:setKey("console", "foreground", nil)
+                        print(database.buffer["console"])
+                        database:save("console")
+                        self:reDraw()
+                    end
+                },
+                ["FOREGROUND"] = {
+                    description = "Sets the foreground color (0xRRGGBB)",
+                    run = function(self, color)
+                        if color == nil then
+                            self:logError("No type or color provided")
+                            return
+                        end
+                        self.foreground = tonumber(color) or 0xFFFFFF
+                        database:setKey("console", "foreground", self.foreground, true)
+                        self:reDraw()
+                    end
+                },
+                ["BACKGROUND"] = {
+                    description = "Sets the background color (0xRRGGBB)",
+                    run = function(self, color)
+                        if color == nil then
+                            self:logError("No type or color provided")
+                            return
+                        end
+                        self.background = tonumber(color) or 0x000000
+                        database:setKey("console", "background", self.background, true)
+                        self:reDraw()
+                    end
+                }
+            },
+            ["CLEAR"] = { 
+                description = "Clears the console",
+                run = function(self)
+                    self:clear()
+                end
+            },
+            ["HISTORY"] = {
+                description = "Shows the command history",
+                run = function(self)
+                    self:log("Command history:")
+                    for i, command in ipairs(self.commandHistory) do
+                        self:log(i .. ": " .. command)
+                    end
+                end
+            },
+            ["CONTROLS"] = {
+                description = "Shows the console controls",
+                run = function(self)
+                    self:log("Controls:")
+                    self:log("  Enter - Run command")
+                    self:log("  Up - Previous command")
+                    self:log("  Down - Next command")
+                    self:log("  Left - Move cursor left")
+                    self:log("  Right - Move cursor right")
+                    self:log("  Backspace - Delete character")
+                    self:log("  Shift + Backspace - Delete word")
+                    self:log("  Delete - Delete character")
+                    self:log("  Shift + Delete - Delete word")
+                    self:log("  Shift + Left - Scroll left")
+                    self:log("  Ctrl + Shift + Left - Scroll left fast")
+                    self:log("  Ctrl + Right - Scroll right")
+                    self:log("  Ctrl + Shift + Right - Scroll right fast")
+                    self:log("  Shift + Up - Scroll up")
+                    self:log("  Ctrl + Shift + Up - Scroll up fast")
+                    self:log("  Shift + Down - Scroll down")
+                    self:log("  Ctrl + Shift + Down - Scroll down fast")
+                    
+                end
+            }
+            
+
+        },
+        ["HELP"] = {
+            description = "Shows help for a command",
+            run = function(self, command)
+                if not command or command == "" then
+                    self:logError("No command provided")
+                    return
+                end
+
+                local parts = {}
+                for part in string.gmatch(command, "%S+") do
+                    table.insert(parts, part:upper())
+                end
+
+                local node = self.commands
+                for _, part in ipairs(parts) do
+                    if node[part] then
+                        node = node[part]
+                    else
+                        self:logError("Unknown command: " .. command)
+                        return
+                    end
+                end
+
+                -- Show the command's description
+                local description = node.description or "no description"
+                self:log(command .. " - " .. description)
+
+                -- Show subcommands if any exist
+                local hasSubcommands = false
+                for key, value in pairs(node) do
+                    if type(value) == "table" and key ~= "run" and key ~= "description" then
+                        if not hasSubcommands then
+                            self:log("Subcommands:")
+                            hasSubcommands = true
+                        end
+                        local subdesc = value.description or "no description"
+                        self:log("  " .. key .. " - " .. subdesc)
+                    end
+                end
+            end
+        }
+    }
+
+
+    return self
+end
+
+-- Splits a string into parts separated by spaces, but keeps quoted substrings intact.
+-- Handles unmatched quotes by stopping at the unmatched quote and ignores escaped characters.
+-- Example: splitQuoted('hello "world test"') -> {"hello", "world test"}
+local function splitQuoted(str)
+    local t = {}
+    local i = 1
+    while i <= #str do
+        local c = str:sub(i, i)
+        if c == '"' then
+            local closing = str:find('"', i + 1)
+            if closing then
+                table.insert(t, str:sub(i + 1, closing - 1))
+                i = closing + 1
+            else
+                break -- unmatched quote
+            end
+        elseif c ~= ' ' then
+            local j = str:find(' ', i) or (#str + 1)
+            table.insert(t, str:sub(i, j - 1))
+            i = j
+        else
+            i = i + 1
+        end
+    end
+    return t
+end
+
+-- Runs a given command in the console, supporting nested subcommands
+function console:runCommand(command)
+    local args = splitQuoted(command)
+    local path = {}
+    local node = self.commands
+
+    -- Traverse the command hierarchy
+    while #args > 0 do
+        local part = args[1]:upper()
+        if node[part] then
+            node = node[part]
+            table.insert(path, table.remove(args, 1))
+        else
+            break
+        end
+    end
+
+    -- Save to command history
+    if command ~= self.commandHistory[#self.commandHistory] then
+        table.insert(self.commandHistory, command)
+        while #self.commandHistory > self.commandHistoryBufferSize do
+            table.remove(self.commandHistory, 1)
+        end
+        for i = 1, #self.commandHistory do
+            database:setKey("console", "com" .. i, self.commandHistory[i])
+        end
+        database:save("console")
+    end
+
+    self:log(">" .. command)
+
+    -- If we found a runnable command
+    if type(node.run) == "function" then
+        local success, err = pcall(node.run, self, table.unpack(args))
+        if not success then
+            self:logError(err)
+        end
+    else
+        self:logError("Unknown or non-executable command: " .. command)
+    end
+end
+
+-- Adds a message to the console
+function console:log(message, color)
+    table.insert(self.messages, { msg = tostring(message), col = color})
+    while #self.messages > self.messageBufferSize do
+        table.remove(self.messages, 1)
+    end
+    if self.verticalScroll > 0 then
+        self.verticalScroll = self.verticalScroll + 1
+        if not self.unseenMessages then
+            self.unseenMessages = true
+            self:drawHead()
+        end
+    end
+    self:drawLog()
+end
+
+-- Logs a error message
+function console:logError(message)
+    self:log(message, 0xFF0000)
+end
+
+-- Draws a horizontal graph to the screen
+function console:horizontalGraph(value, maxValue)
+  local percent = (value / maxValue) * 100
+  local percentStr = string.format("%.1f%%", percent)
+
+  local leftPad = " "
+  local rightPad = " "
+
+  -- Total reserved width:
+  -- 1 (left pad) + 1 (left '|') + bar + 1 (right '|') + 1 (space) + % + 1 (right pad)
+  local reserved = #leftPad + 1 + 1 + 1 + #percentStr + #rightPad
+  local barArea = self.width - reserved
+
+  -- Bar characters
+  local barChar = "#"
+  local barWidth = math.floor((value / maxValue) * barArea)
+  local spaceWidth = barArea - barWidth
+
+  local bar = string.rep(barChar, barWidth) .. string.rep(" ", spaceWidth)
+
+  self:log(leftPad .. "|" .. bar .. "|" .. " " .. percentStr .. rightPad)
+end
+
+local keyboard = require("/systems/keyboard.lua")
+
+local function setCharAt(str, index, char, padChar)
+    padChar = padChar or " "  -- default padding is a space
+    if index < 1 then
+        return str  -- invalid index
+    end
+
+    local currentLength = #str
+
+    if index <= currentLength then
+        -- Replace existing character
+        return str:sub(1, index - 1) .. char .. str:sub(index + 1)
+    else
+        -- Pad string and set character at index
+        local padding = string.rep(padChar, index - currentLength - 1)
+        return str .. padding .. char
+    end
+end
+
+local function insertCharAt(str, index, char, padChar)
+    padChar = padChar or " "  -- default padding
+    if index < 1 then
+        return str  -- invalid index
+    end
+
+    local currentLength = #str
+
+    if index > currentLength + 1 then
+        -- Pad string up to (index - 1), then insert char
+        local padding = string.rep(padChar, index - currentLength - 1)
+        return str .. padding .. char
+    else
+        -- Insert char and shift the rest
+        return str:sub(1, index - 1) .. char .. str:sub(index)
+    end
+end
+
+function console:scrollHorizontal(speed)
+    speed = speed or 1
+    self.horizontalScroll = self.horizontalScroll + speed
+    if self.horizontalScroll < 0 then
+        self.horizontalScroll = 0
+    end
+    self:drawLog()
+    self:drawHead()
+end
+function console:scrollVertical(speed)
+    speed = speed or 1
+    self.verticalScroll = self.verticalScroll + speed
+    if self.verticalScroll <= 0 and self.unseenMessages then
+        self.unseenMessages = false
+    end
+
+    if self.verticalScroll < 0 then
+        self.verticalScroll = 0
+    end
+    self:drawLog()
+    self:drawHead()
+end
+
+-- Registers a key press
+function console:registerKey(char, code)
+    local success, err = pcall(function()
+        if code == keyboard.keys.enter or code == keyboard.keys.numpadenter then
+            if self.input == "" then return end
+            self:scrollVertical(-math.huge)
+            self:runCommand(self.input)
+            self.input = ""
+            self.inputCursor = 1
+            self:drawInput()
+            self.commandHistoryCursor = 0
+        elseif code == keyboard.keys.escape then
+            self.input = ""
+            self.inputCursor = 1
+            self:drawInput()
+            self.commandHistoryCursor = 0
+        elseif code == keyboard.keys.right and keyboard:isShiftDown() then
+            local speed = 1
+            if keyboard.isControlDown() then
+                speed = 10
+            end
+            self:scrollHorizontal(speed)
+        elseif code == keyboard.keys.left and keyboard:isShiftDown() then
+            local speed = -1
+            if keyboard.isControlDown() then
+                speed = -10
+            end
+            self:scrollHorizontal(speed)
+        elseif code == keyboard.keys.up and not keyboard:isShiftDown() then
+            if self.commandHistoryCursor < #self.commandHistory then
+                self.commandHistoryCursor = self.commandHistoryCursor + 1
+                self.input = self.commandHistory[#self.commandHistory - self.commandHistoryCursor + 1]
+                if self.commandHistoryCursor == #self.commandHistory then
+                    self.input = ""
+                end
+                self.inputCursor = #self.input + 1
+                self:drawInput()
+            end
+        elseif code == keyboard.keys.down and not keyboard:isShiftDown() then
+            if self.commandHistoryCursor > 0 then
+                local speed = 1
+                if keyboard.isControlDown() then
+                    speed = 10
+                end
+                self.commandHistoryCursor = self.commandHistoryCursor - speed
+                if self.commandHistoryCursor == 0 then
+                    self.input = ""
+                else
+                    self.input = self.commandHistory[#self.commandHistory - self.commandHistoryCursor + 1]
+                end
+                self.inputCursor = #self.input + 1
+                self:drawInput()
+            end
+        elseif code == keyboard.keys.up and keyboard:isShiftDown() then
+            local speed = 1
+            if keyboard.isControlDown() then
+                speed = 10
+            end
+            self:scrollVertical(speed)
+        elseif code == keyboard.keys.down and keyboard:isShiftDown() then
+            local speed = -1
+            if keyboard.isControlDown() then
+                speed = -10
+            end
+            self:scrollVertical(speed)
+        elseif code == keyboard.keys.left then
+            if self.inputCursor > 1 then
+                self.inputCursor = self.inputCursor - 1
+                self:drawInput()
+            end
+        elseif code == keyboard.keys.right then
+            if self.inputCursor <= #self.input then
+                self.inputCursor = self.inputCursor + 1
+                self:drawInput()
+            end
+
+        elseif code == keyboard.keys["backspace"] or char == 8 then
+            if self.inputCursor > 1 then
+                if keyboard.isShiftDown() then
+                    -- Find last space before cursor, or go to start if none
+                    local rev = self.input:sub(1, self.inputCursor - 2):reverse()
+                    local lastSpace = rev:find(" ")
+                    if lastSpace then
+                    self.input = self.input:sub(1, self.inputCursor - lastSpace - 2) .. self.input:sub(self.inputCursor)
+                    self.inputCursor = self.inputCursor - lastSpace - 1
+                    else
+                    self.input = self.input:sub(self.inputCursor)
+                    self.inputCursor = 1
+                    end
+                else
+                    self.input = self.input:sub(1, self.inputCursor - 2) .. self.input:sub(self.inputCursor)
+                    self.inputCursor = self.inputCursor - 1
+                end
+            end
+            self:drawInput()
+            self.commandHistoryCursor = 0
+        elseif code == keyboard.keys["delete"] or char == 127 then
+            if self.inputCursor <= #self.input then
+            if keyboard.isShiftDown() then
+                -- Find next space after cursor, or go to end if none
+                local after = self.input:sub(self.inputCursor)
+                local nextSpace = after:find(" ")
+                if nextSpace then
+                self.input = self.input:sub(1, self.inputCursor - 1) .. self.input:sub(self.inputCursor + nextSpace)
+                else
+                self.input = self.input:sub(1, self.inputCursor - 1)
+                end
+            else
+                self.input = self.input:sub(1, self.inputCursor - 1) .. self.input:sub(self.inputCursor + 1)
+            end
+            end
+            self:drawInput()
+            self.commandHistoryCursor = 0
+        elseif code == keyboard.keys.pageUp then
+            self:scrollVertical(self.height-2)
+        elseif code == keyboard.keys.pageDown then
+            self:scrollVertical(-(self.height-2))
+        elseif code == keyboard.keys["end"] then
+            self:scrollVertical(-math.huge)
+        elseif char > 0 and not keyboard.isControlDown() then
+            self.input = insertCharAt(self.input, self.inputCursor, string.char(char))
+            self.commandHistoryCursor = 0
+            self.inputCursor = self.inputCursor + 1
+            self:drawInput()
+        elseif code == keyboard.keys.v and keyboard.isControlDown() then
+            if clipboard then
+                self.input = insertCharAt(self.input, self.inputCursor, clipboard)
+                self.commandHistoryCursor = 0
+                self.inputCursor = self.inputCursor + #clipboard
+                self:drawInput()
+            else
+                self:logError("Clipboard is empty")
+            end
+        end
+    end)
+    if not success then self:logError(err) end
+end
+
+-- Draws the input line
+function console:drawInput()
+    self:startDraw()
+    if self.input ~= "" then
+        gpu.setBackground(self.foreground)
+        gpu.setForeground(self.background)
+    else
+        gpu.setBackground(self.background)
+        gpu.setForeground(self.foreground)
+    end
+    gpu.fill(1, self.height, self.width, 1, " ")
+    gpu.set(1, self.height, self.input)
+    gpu.setBackground(self.background)
+    gpu.setForeground(self.foreground)
+
+    local char = self.input:sub(self.inputCursor, self.inputCursor)
+    if char == "" then char = " " end
+    gpu.set(self.inputCursor, self.height, char) -- cursor
+
+    self:endDraw(self.positionX, self.height, self.width, 1, 1, self.height)
+end
+
+-- Draws the header of the console
+function console:drawHead()
+    self:startDraw()
+    gpu.setBackground(self.foreground)
+    gpu.setForeground(self.background)
+    gpu.fill(1, 1, self.width, 1, " ")
+
+    gpu.set(self.width - 10, 1, tostring(self.horizontalScroll))
+    gpu.set(self.width - 5, 1, tostring(self.verticalScroll))
+
+    if self.unseenMessages then
+        gpu.set(self.width - 2, 1, "!⬇")
+    else
+        gpu.set(self.width - 2, 1, "  ")
+    end
+
+    gpu.set(1, 1, self.title)
+
+    gpu.setBackground(self.background)
+    gpu.setForeground(self.foreground)
+    self:endDraw(self.positionX, self.positionY, self.width, 1)
+end
+
+-- Draws the log messages
+function console:drawLog()
+    self:startDraw()
+    gpu.fill(1, 2, self.width, self.height - 2, " ")
+    local visibleLines = self.height - 2
+    local totalMessages = #self.messages
+    local startIdx = math.max(1, totalMessages - visibleLines + 1 - self.verticalScroll)
+    local endIdx = math.min(totalMessages, startIdx + visibleLines - 1)
+    for i = startIdx, totalMessages do
+        if i > endIdx then break end
+        local message = self.messages[i]
+        gpu.setBackground(self.background)
+        gpu.setForeground(message.col or self.foreground)
+        gpu.set(1, 2 + (i - startIdx), message.msg:sub(self.horizontalScroll + 1, self.horizontalScroll + self.width))
+    end
+    gpu.setForeground(self.foreground)
+    self:endDraw(self.positionX, self.positionY + 1, self.width, self.height - 2, 1, 2)
+end
+
+-- Clears the console
+function console:clear()
+    self.messages = {}
+    self.horizontalScroll = 0
+    self:drawLog()
+end
+
+-- Adds a command to the console with support for nested subcommands (split by .)
+function console:addCommand(path, description, fn)
+    -- Split string paths like "system.reboot" into tables
+    if type(path) == "string" then
+        local parts = {}
+        for part in string.gmatch(path, "[^%.]+") do
+            table.insert(parts, part)
+        end
+        path = parts
+    end
+
+    local node = self.commands
+    for i = 1, #path do
+        local key = path[i]:upper()
+        if not node[key] then
+            node[key] = {}
+        end
+        if i == #path then
+            node[key].description = description
+            node[key].run = fn
+        else
+            node = node[key]
+        end
+    end
+end
+
+-- Starts the console
+function console:start()
+    if self.running then
+        self:logError("Console is already running")
+        return
+    end
+    self.running = true
+    self.drawBuffer = gpu.allocateBuffer(self.width, self.height)
+    self:drawHead()
+    self:drawLog()
+    self:drawInput()
+    self.onKeyDownEventId = globalEvents.onKeyDown:subscribe(function(char, code) self:registerKey(char, code) end)
+    self.onScrollEventId = globalEvents.onScroll:subscribe(function(screen, x, y, direction)
+        if keyboard:isControlDown() then
+            direction = direction * 10
+        end
+        if keyboard:isShiftDown() then
+            self:scrollHorizontal(direction)
+        else
+            self:scrollVertical(direction)
+        end
+    end)
+end
+
+-- Stops the console
+function console:stop()
+    if not self.running then
+        self:logError("Console is not running")
+        return
+    end
+    self.running = false
+    globalEvents.onKeyDown:unsubscribe(self.onKeyDownEventId)
+    gpu.fill(self.positionX, self.positionY, self.width, self.height, " ")
+    gpu.freeBuffer(self.drawBuffer)
+    self.drawBuffer = nil
+end
+
+-- Updates the console title
+function console:setTitle(title)
+    self.title = title
+    self:drawHead()
+end
+
+-- Draws the entire console again
+function console:reDraw()
+    self:drawHead()
+    self:drawLog()
+    self:drawInput()
+end
+
+-- Starts drawing
+function console:startDraw()
+    if not self.drawBuffer then
+        self:logError("Draw buffer is not initialized")
+        return
+    end
+    gpu.setActiveBuffer(self.drawBuffer)
+end
+
+-- Ends drawing (doBitBlt will update the screen buffer)
+function console:endDraw(targetX, targetY, targetWidth, targetHeight, fromX, fromY)
+    targetX = targetX or self.positionX
+    targetY = targetY or self.positionY
+    targetWidth = targetWidth or self.width
+    targetHeight = targetHeight or self.height
+    if doBitBlt == nil then doBitBlt = true end
+    if not self.drawBuffer then
+        self:logError("Draw buffer is not initialized")
+        return
+    end
+    if not gpu.bitblt(0, targetX, targetY, targetWidth, targetHeight, self.drawBuffer, fromX, fromY) then
+        error("Error drawing to the screen")
+    end
+    gpu.setActiveBuffer(0)
+end
+
+return console
