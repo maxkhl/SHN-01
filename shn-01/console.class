@@ -1,18 +1,15 @@
 
-local console = {}
-console.__index = console
+local console = newClass()
 
 local gpu = getComponent("gpu")
 
-local database = require("systems/database.lua")
+local database = require("/systems/database")
 
 --local keyboard = require("keyboard")
 --local event = require("event")
 
 -- Constructor for the console
-function console.new(positionX, positionY, width, height)
-    local self = setmetatable({}, console)
-
+function console:constructor(positionX, positionY, width, height)
     self.messageBufferSize = 100
     self.messages = {}
 
@@ -41,10 +38,14 @@ function console.new(positionX, positionY, width, height)
     self.height = height
 
     self.background = database:getKey("console", "background") or 0x000000
-    self.foreground = database:getKey("console", "foreground") or 0xFFFFFF
+    self.foreground = database:getKey("console", "foreground") or 0x00FF00
+    self.headcolor = database:getKey("console", "headcolor") or 0x6699FF
+    self.inputcolor = database:getKey("console", "inputcolor") or 0xA0C0A9
     if gpu.getDepth() == 1 then -- no colors supported -> fallback
         self.background = 0x000000
         self.foreground = 0xFFFFFF
+        self.headcolor = 0xFFFFFF
+        self.inputcolor = 0xFFFFFF
     end
 
     self.verticalScroll = 0
@@ -95,10 +96,13 @@ function console.new(positionX, positionY, width, height)
                     description = "Resets console style to default",
                     run = function(self)
                         self.background = 0x000000
-                        self.foreground = 0xFFFFFF
+                        self.foreground = 0x00FF00
+                        self.headcolor = 0x6699FF
+                        self.inputcolor = 0xA0C0A9
                         database:setKey("console", "background", nil)
                         database:setKey("console", "foreground", nil)
-                        print(database.buffer["console"])
+                        database:setKey("console", "headcolor", nil)
+                        database:setKey("console", "inputcolor", nil)
                         database:save("console")
                         self:reDraw()
                     end
@@ -110,6 +114,13 @@ function console.new(positionX, positionY, width, height)
                             self:logError("No type or color provided")
                             return
                         end
+
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.background)
+                        if contrasted ~= tonumber(color) then
+                            self:logError("Foreground color does not have enough contrast with the background color, using " .. string.format("0x%06X", contrasted))
+                            color = contrasted
+                        end
+
                         self.foreground = tonumber(color) or 0xFFFFFF
                         database:setKey("console", "foreground", self.foreground, true)
                         self:reDraw()
@@ -122,9 +133,54 @@ function console.new(positionX, positionY, width, height)
                             self:logError("No type or color provided")
                             return
                         end
+                        
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.forgeround)
+                        if contrasted ~= tonumber(color) then
+                            self:logError("Background color does not have enough contrast with the foreground color, using " .. string.format("0x%06X", contrasted))
+                            color = contrasted
+                        end
+
                         self.background = tonumber(color) or 0x000000
                         database:setKey("console", "background", self.background, true)
                         self:reDraw()
+                    end
+                },
+                ["HEADCOLOR"] = {
+                    description = "Sets the background color of the header line (0xRRGGBB)",
+                    run = function(self, color)
+                        if color == nil then
+                            self:logError("No type or color provided")
+                            return
+                        end
+                        
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.background)
+                        if contrasted ~= tonumber(color) then
+                            self:logError("Head color does not have enough contrast with the background color, using " .. string.format("0x%06X", contrasted))
+                            color = contrasted
+                        end
+
+                        self.headcolor = tonumber(color) or 0x000000
+                        database:setKey("console", "headcolor", self.headcolor, true)
+                        self:drawHead()
+                    end
+                },
+                ["INPUTCOLOR"] = {
+                    description = "Sets the background color of the input line (0xRRGGBB)",
+                    run = function(self, color)
+                        if color == nil then
+                            self:logError("No type or color provided")
+                            return
+                        end
+                        
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.background)
+                        if contrasted ~= tonumber(color) then
+                            self:logError("Input color does not have enough contrast with the background color, using " .. string.format("0x%06X", contrasted))
+                            color = contrasted
+                        end
+
+                        self.inputcolor = tonumber(color) or 0x000000
+                        database:setKey("console", "inputcolor", self.inputcolor, true)
+                        self:drawInput()
                     end
                 }
             },
@@ -212,9 +268,6 @@ function console.new(positionX, positionY, width, height)
             end
         }
     }
-
-
-    return self
 end
 
 -- Splits a string into parts separated by spaces, but keeps quoted substrings intact.
@@ -242,6 +295,42 @@ local function splitQuoted(str)
         end
     end
     return t
+end
+
+
+local function flattenCommands(tbl, prefix, list)
+  prefix = prefix or ""
+  list = list or {}
+
+  for k, v in pairs(tbl) do
+    if type(v) == "function" then
+      table.insert(list, prefix)
+    elseif type(v) == "table" then
+      local full = prefix == "" and k or (prefix .. " " .. k)
+      flattenCommands(v, full, list)
+    end
+  end
+
+  return list
+end
+
+local function getClosestCommand(input, commandTree)
+  local knownCommands = flattenCommands(commandTree)
+  local bestDist = math.huge
+  local bestMatch = nil
+
+  for _, cmd in ipairs(knownCommands) do
+    local dist = math.levenshtein(input:upper(), cmd)
+    if dist < bestDist then
+      bestDist = dist
+      bestMatch = cmd
+    end
+  end
+
+  -- Only suggest if it's reasonably close
+  if bestDist <= 4 then
+    return bestMatch
+  end
 end
 
 -- Runs a given command in the console, supporting nested subcommands
@@ -282,13 +371,19 @@ function console:runCommand(command)
             self:logError(err)
         end
     else
-        self:logError("Unknown or non-executable command: " .. command)
+        local closest = getClosestCommand(command, self.commands)
+        if closest then
+            self:logError("Unknown command. Did you mean: " .. closest .. "?")
+        else
+            self:logError("Unknown or non-executable command: " .. command)
+        end
     end
 end
 
 -- Adds a message to the console
 function console:log(message, color)
-    table.insert(self.messages, { msg = tostring(message), col = color})
+    if color ~= nil then color = colorTools.ensureContrast(tonumber(color), self.background) end
+    table.insert(self.messages, { msg = tostring(message), col = color })
     while #self.messages > self.messageBufferSize do
         table.remove(self.messages, 1)
     end
@@ -533,7 +628,7 @@ end
 function console:drawInput()
     self:startDraw()
     if self.input ~= "" then
-        gpu.setBackground(self.foreground)
+        gpu.setBackground(self.inputcolor)
         gpu.setForeground(self.background)
     else
         gpu.setBackground(self.background)
@@ -554,7 +649,7 @@ end
 -- Draws the header of the console
 function console:drawHead()
     self:startDraw()
-    gpu.setBackground(self.foreground)
+    gpu.setBackground(self.headcolor)
     gpu.setForeground(self.background)
     gpu.fill(1, 1, self.width, 1, " ")
 
@@ -567,7 +662,11 @@ function console:drawHead()
         gpu.set(self.width - 2, 1, "  ")
     end
 
-    gpu.set(1, 1, self.title)
+    local drawTitle = self.title
+    if #drawTitle > self.width - 12 then
+        drawTitle = string.sub(drawTitle, 1, self.width - 15) .. "..."
+    end
+    gpu.set(1, 1, drawTitle)
 
     gpu.setBackground(self.background)
     gpu.setForeground(self.foreground)
@@ -643,7 +742,7 @@ function console:start()
             direction = direction * 10
         end
         if keyboard:isShiftDown() then
-            self:scrollHorizontal(direction)
+            self:scrollHorizontal(-direction)
         else
             self:scrollVertical(direction)
         end

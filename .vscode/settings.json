@@ -15,6 +15,17 @@
         "requireBuffer",
         "classBuffer",
         "new",
-        "visualLength"
-    ]
+        "visualLength",
+        "class",
+        "network",
+        "crypto",
+        "requireFree",
+        "newClass",
+        "colorTools",
+        "server",
+        "getAbsolutePath"
+    ],
+    "files.associations": {
+        "*.class": "lua"
+    }
 }

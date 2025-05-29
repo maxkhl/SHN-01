@@ -30,5 +30,3 @@ for i = 1, #splashLogo do
     gpu.set(startX, startY + i, splashLogo[i])
 end
 
-
-computer.pullSignal(3)

@@ -3,15 +3,15 @@ local event = {}
 event.__index = event
 
 -- Creates a new event with the given name
-function event.new()
-    local self = setmetatable({}, event)
+function event:new()
+    local obj = setmetatable({}, event)
 
     -- contains all listening functions
-    self.listener = {}
+    obj.listener = {}
 
     -- Internal counter for IDs
-    self.nextListenerId = 1
-    return self
+    obj.nextListenerId = 1
+    return obj
 end
 
 -- Fires this event, calls all listeners with pcall and logs any errors

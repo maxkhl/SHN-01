@@ -54,7 +54,8 @@ function fileSystem()
 end
 
 -- Reads a file and returns its content
-function readFile(absolutePath)
+file = {}
+function file.read(absolutePath)
     if not absolutePath then error("No file path given") return end
     local fileSystem = fileSystem()
     local stream, reason = fileSystem.open(absolutePath, "r")
@@ -71,8 +72,8 @@ function readFile(absolutePath)
 end
 
 -- Loads a lua file, executes it and returns the result
-function includeCore(absolutePath, env)
-    local code, path = readFile(absolutePath)
+function includeCore(absolutePath)
+    local code, path = file.read(absolutePath)
     local chunk, err = load(tostring(code), "=" .. path, nil, _G)
     if not chunk then error("Failed to compile " .. path .. ": " .. tostring(err)) end
     return chunk()

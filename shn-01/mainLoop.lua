@@ -8,12 +8,16 @@
 local tps = 0
 local tpsCount = 0
 local tpsSecond = 0
+local netMsgCount = 0
+local netMsgPerSecond = 0
 
 local console = require("/systems/console.lua")
+
 
 -- The main update loop
 while true do
   local e = {computer.pullSignal(0.05)}
+
   
   if e[1] then
     if e[1] == "interrupted" then
@@ -23,6 +27,7 @@ while true do
     elseif e[1] == "key_up" then
       globalEvents.onKeyUp:fire(e[3], e[4])
     elseif e[1] == "modem_message" then
+      netMsgCount = netMsgCount + 1
       globalEvents.onNetMessageReceived:fire(table.unpack(e, 2))
     elseif e[1] == "touch" then
       globalEvents.onTouch:fire(table.unpack(e, 2))
@@ -44,9 +49,22 @@ while true do
   if computer.uptime() - tpsSecond >= 1 then
     tps = tpsCount
     tpsCount = 0
+    netMsgPerSecond = netMsgCount
+    netMsgCount = 0
     tpsSecond = computer.uptime()
     if console then
-      console:setTitle("Server Console - TPS: " .. tostring(tps))
+      local totalMemory = computer.totalMemory()
+      local freeMemory = computer.freeMemory()
+      local memory = (totalMemory - freeMemory) / totalMemory * 100
+
+      local t = os.time() % 24000
+      local h, m = math.floor(t / 1000 + 6) % 24, math.floor((t % 1000) / 1000 * 60)
+
+      console:setTitle("Console -" .. 
+      " TPS:" .. tostring(tps) .. 
+      " Mem:" .. string.format("%.2f", memory) .. "%" .. 
+      " Time:" .. string.format("%02d:%02d", h, m) .. 
+      " Net:" .. tostring(netMsgPerSecond) .. "msg/s")
     end
   end
 end

@@ -1,0 +1,93 @@
+local protocol = newClass()
+
+-- Creates a new event with the given name
+function protocol:constructor(name, port, description, sequences)
+    assert(self, "Must be called on a object")
+    assert(name, "No protocol name given")
+    assert(port, "No protocol port given")
+    assert(type(port) == "number", "Invalid protocol port, expected number")
+    assert(type(sequences) == "table", "Invalid sequences, expected table")
+
+    self.name = name
+    self.port = port
+
+    self.sessions = {}
+
+    -- Contains all sequences this protocol supports indexed by ID
+    self.sequences = {}
+    for _, seq in ipairs(sequences) do
+        self.sequences[seq.id] = seq
+    end
+    
+end
+
+function protocol:start()
+    assert(self, "Must be called on a object")
+    local modem = getComponent("modem")
+
+    -- Open the modem port for this protocol
+    modem.open(self.port)
+
+    globalEvents.onNetMessageReceived:subscribe(function(receiver, sender, port, distance, ...)
+        if port == protocol.port then
+            local message = protocol:createMessage(sender, protocol, distance, ...)
+            
+            if self.sequences[(...)[1]] then -- message is a new sequence request
+                local sequenceID = (...)[1]
+                local sessionID = protocol:startSession(sequenceID, ...)
+                if sessionID then
+                    print("Started new session with ID " .. sessionID .. " for sequence " .. sequenceID)
+                else
+                    print("Failed to start session for sequence " .. sequenceID)
+                end
+            elseif self.sessions[(...)[1]] then -- message is a session request
+                local sessionID = (...)[1]
+                if not self.sessions[sessionID] then
+                    error("No session with ID " .. sessionID .. " found in protocol " .. self.name)
+                end
+
+                -- Process the message in the session
+                self.sessions[sessionID]:process(message)
+            else
+                error("Unknown message type or sequence ID in protocol " .. self.name)
+            end
+
+            protocol:handleMessage(receiver, sender, distance, ...)
+        end
+    end)
+
+    print("Protocol '" .. self.name .. "' started on port " .. self.port)
+end
+
+function protocol:startSession(sequenceID, ...)
+    assert(self, "Must be called on a object")
+    assert(sequenceID, "No sequence ID given")
+    if not self.sequences[sequenceID] then
+        error("No sequence with ID " .. sequenceID .. " found in protocol " .. self.name)
+    end
+
+    -- Create a new session for the sequence
+    local sessionID = crypto.sessionID() -- Generate a unique session ID
+    local sequence = self.sequences[sequenceID]
+    self.sessions[sessionID] = sequence:new(sessionID, ...)
+
+    return sessionID
+end
+
+function protocol:process(sessionID, ...)
+    assert(self, "Must be called on a object")
+    local sequence = self.sessions[sessionID]
+    if not sequence then
+        error("No sequence with ID " .. sessionID .. " found in protocol " .. self.name)
+    end
+
+    -- Call the sequence with the given arguments
+    return sequence:process(...)
+end
+
+function protocol:createMessage(remoteAddress, protocol, distance, ...)
+    assert(self, "Must be called on a object")
+    return class("/shn-01/network/message"):new(remoteAddress, protocol, distance, ...)
+end
+
+return protocol

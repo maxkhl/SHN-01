@@ -1,67 +1,48 @@
 
--- Normalizes path by resolving "." and ".."
-local function normalizePath(path)
-    local parts = {}
-    for part in path:gmatch("[^/]+") do
-        if part == ".." then
-            table.remove(parts)
-        elseif part ~= "." then
-            table.insert(parts, part)
-        end
-    end
-    return "/" .. table.concat(parts, "/")
-end
-
--- Returns the absolute file path of a given relative path
-function getAbsoluteFilePath(relativePath, origin)
-    if relativePath:sub(1, 1) == "/" then
-        return normalizePath(relativePath)
-    end
-    return normalizePath(origin .. "/" .. relativePath)
-end
-
--- Reads a file and returns its content
-local function readFileRelative(relativePath, origin)
-    if not relativePath then error("No file path given") return end
-    local fileSystem = fileSystem()
-    local path = getAbsoluteFilePath(relativePath, origin)
-    local stream, reason = fileSystem.open(path, "r")
-    if not stream then error("Failed to open " .. path .. ": " .. tostring(reason)) end
-
-    local chunks = {}
-    local newChunk = fileSystem.read(stream, 4096)
-    while newChunk do
-        table.insert(chunks, newChunk)
-        newChunk = fileSystem.read(stream, 4096)
-    end
-    fileSystem:close(stream)
-    return table.concat(chunks), path
-end
 
 local function dirname(path)
     return path:match("^(.*)/") or "."
 end
 
 -- Loads a lua file, executes it and returns the result (works with relative paths)
-function include(relativePath, origin)
+function include(relativePath, origin, env)
     origin = origin or baseDir
-    local env = setmetatable({}, { __index = _G })
 
-    local code, fullPath = readFileRelative(relativePath, origin)
+    local code, fullPath = file.readRelative(relativePath, origin)
 
     -- Setup env.include for nested scripts to use current directory
     local newOrigin = dirname(fullPath)
-    env.baseDir = newOrigin
 
-    env.include = function(relativePathSub)
-        include(relativePathSub, env.baseDir)
+    if not env then
+        local localEnv = {}
+        localEnv.baseDir = newOrigin
+
+        localEnv.include = function(relativePathSub)
+            return include(relativePathSub, env.baseDir)
+        end
+        localEnv.getAbsolutePath = function(relativePathSub, originSub)
+            local originSub = originSub or env.baseDir
+            return getAbsolutePath(relativePathSub, originSub)
+        end
+
+        localEnv.new = function(path, ...)
+            return new(getAbsolutePath(path, env.baseDir), ...)
+        end
+        localEnv.class = function(path)
+            return class(getAbsolutePath(path, env.baseDir))
+        end
+        localEnv.require = function(path)
+            return require(getAbsolutePath(path, env.baseDir))
+        end
+
+        env = setmetatable(localEnv, { __index = _G })
     end
 
+    --print("Including " .. fullPath .. " - " .. code)
     local chunk, err = load(tostring(code), "=" .. fullPath, nil, env)
     if not chunk then
         error("Failed to compile " .. fullPath .. ": " .. tostring(err))
     end
-
     return chunk()
 end
 
@@ -69,8 +50,19 @@ end
 requireBuffer = {}
 
 -- Loads a lua file, executes it exactly once and returns the result (watch out for nested requires)
-function require(path, test)
-    local fullPath = getAbsoluteFilePath(path, baseDir)
+function require(path)
+    if not path then error("No path given") return end
+    local extension = file.getExtension(path)
+    if extension and extension ~= "lua" then
+        error("Invalid script path: " .. path .. ", expected .lua")
+    elseif not extension then
+        path = path .. ".lua"
+    end
+    if not baseDir then
+        error("No base directory set")
+    end
+
+    local fullPath = getAbsolutePath(path, baseDir)
     if requireBuffer[fullPath] then
         return requireBuffer[fullPath]
     end
@@ -82,22 +74,12 @@ function require(path, test)
     return result
 end
 
--- Contains all loaded classes
-classBuffer = {}
-
--- Creates a new instance of the given class lua file (needs to return a table with a new function)
-function new(path, ...)
+function requireFree(path)
+    if not path then error("No path given") return end
     local fullPath = getAbsoluteFilePath(path, baseDir)
-    if classBuffer[fullPath] and classBuffer[fullPath].new then
-        return classBuffer[fullPath].new(...)
+    if requireBuffer[fullPath] then
+        requireBuffer[fullPath] = nil
+        return true
     end
-
-    local result = include(path)
-
-    classBuffer[fullPath] = result
-    if result and result.new then
-      return result.new(...)
-    else
-      return nil
-    end
+    return false
 end

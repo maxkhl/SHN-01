@@ -79,6 +79,15 @@ function database:getKey(application, key)
     return self.buffer[application][key]
 end
 
+function database:loadOnce(application)
+    if not self.buffer[application] then
+        if not database:load(application) then
+            return false
+        end
+    end
+    return true
+end
+
 function database:load(application)
     local fs = fileSystem()
     local path = self:GetApplicationPath(application)

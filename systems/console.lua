@@ -1,20 +1,11 @@
 local gpu = getComponent("gpu")
 local screenWidth, screenHeight = gpu.getResolution()
 
-local console = new("/shn-01/consoleClass.lua", 1, 1, screenWidth, screenHeight)
+local console = new("/shn-01/console", 1, 1, screenWidth, screenHeight)
 if not console then return nil end
 
 console:start()
-console:setTitle("Server Console")
-
---console:addCommand("SHUTDOWN", "Shuts the server down", function()
---    console:stop()
---end)
-
---console:addCommand("CONSOLE.REBOOT", "Re-initializes the console", function()
---    console:stop()
---    initConsole()
---end)
+console:setTitle("Console")
 
 local function centerText(text, width, fillChar)
   fillChar = fillChar or " "
@@ -26,9 +17,10 @@ local function centerText(text, width, fillChar)
   return string.rep(fillChar, left) .. text .. string.rep(fillChar, right)
 end
 
+
 local logoLines = file.readLines("/shn-01/data/consoleLogo.txt")
 for i=1, #logoLines do
-    console:log(centerText(logoLines[i], screenWidth))
+    console:log(centerText(logoLines[i], screenWidth), console.headcolor)
 end
 math.randomseed(os.time())
 local intros = {
@@ -56,7 +48,7 @@ local intros = {
 }
 local text = intros[math.random(#intros)]
 
-console:log(centerText(text, screenWidth))
+console:log(centerText(text, screenWidth), console.inputcolor)
 console:log("")
 
 

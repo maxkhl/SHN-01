@@ -1,0 +1,90 @@
+local sequence = newClass()
+
+
+sequence.sequenceStatus = {
+    initialized = 1,
+    started = 2,
+    timedout = 3,
+    error = 4,
+    finished = 5,
+}
+
+-- Creates a new sequence object based on the manifest and mode
+function sequence:create(manifestPath, serverMode, ...)
+    assert(manifestPath, "No manifest path given")
+    
+    local manifest = include(manifestPath)
+    assert(manifest, "Could not load manifest from " .. manifestPath)
+
+    assert(manifest.name, "Manifest has no name")
+    assert(manifest.serverClass or manifest.clientClass, "Manifest has no server or client class defined")
+    assert(serverMode, "Invalid serverMode mode, expected true for server, false for client")
+    assert(type(serverMode) == "boolean", "Invalid serverMode mode, expected boolean")
+    assert(self, "Must be called on a object")
+    local sequenceClass = nil
+    if serverMode and manifest.serverClass then
+        sequenceClass = class(getAbsolutePath(manifest.serverClass, file.getDir(manifestPath)))
+        assert(sequenceClass, "No sequence class found for server mode " .. manifest.name)
+    elseif not serverMode and manifest.clientClass then
+        sequenceClass = class(getAbsolutePath(manifest.clientClass, file.getDir(manifestPath)))
+        assert(sequenceClass, "No sequence class found for client mode " .. manifest.name)
+    else
+        error("Sequence manifest " .. manifest.name .. " no valid mode")
+    end
+    return sequenceClass:new(...)
+end
+
+function sequence:constructor(name, func, timeout, timeoutCallback)
+    assert(name, "No sequence name given")
+    assert(func, "No sequence function given")
+    assert(type(func) == "function", "Invalid sequence function, expected function")
+    assert(self, "Must be called on a object")
+    assert(timeoutCallback == nil or type(timeoutCallback) == "function", "Invalid timeout function, expected function or nil")
+
+    self.name = name
+    self.id = crypto.sessionID() -- Unique ID for the sequence
+    self.status = sequence.sequenceStatus.initialized
+    self.routine = coroutine.create(func)
+    self.startTime = os.time()
+    self.timeout = timeout or 60 -- Default timeout of 60 seconds
+    self.timeoutCallback = timeoutCallback
+
+end
+
+function sequence:__tostring()
+    assert(self, "Must be called on a object")
+    return string.format("Network Sequence: %s (ID: %s)", self.name, self.id)
+end
+
+function sequence:checkTimeout()
+    assert(self, "Must be called on a object")
+    if os.time() - self.startTime > self.timeout then
+        self.status = sequence.sequenceStatus.timedout
+        if self.timeoutCallback then
+            self.timeoutCallback(self.id)
+        end
+        return true
+    end
+    return false
+end
+
+function sequence:process(message)
+    assert(self, "Must be called on a object")
+    assert(not self:checkTimeout(), "Sequence has timed out")
+    assert(message, "No message given")
+
+    local ok, coSuccess, coMessage = pcall(coroutine.resume, self.routine, message)
+    if not ok then
+        error("Error resuming coroutine in " .. tostring(self) .. ": " .. tostring(coSuccess))
+    end
+    if not coSuccess then
+        error("Coroutine error in " .. tostring(self) .. ": " .. tostring(coMessage))
+    end
+
+    if coroutine.status(self.routine) == "dead" then
+        self.status = sequence.sequenceStatus.finished
+    end
+    return self.status
+end
+
+return sequence
