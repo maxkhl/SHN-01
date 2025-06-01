@@ -41,11 +41,13 @@ function console:constructor(positionX, positionY, width, height)
     self.foreground = database:getKey("console", "foreground") or 0x00FF00
     self.headcolor = database:getKey("console", "headcolor") or 0x6699FF
     self.inputcolor = database:getKey("console", "inputcolor") or 0xA0C0A9
+    self.highlight = database:getKey("console", "highlight") or 0xFFFFFF
     if gpu.getDepth() == 1 then -- no colors supported -> fallback
         self.background = 0x000000
         self.foreground = 0xFFFFFF
         self.headcolor = 0xFFFFFF
         self.inputcolor = 0xFFFFFF
+        self.highlight = 0xFFFFFF
     end
 
     self.verticalScroll = 0
@@ -63,9 +65,9 @@ function console:constructor(positionX, positionY, width, height)
                     for name, command in pairs(commands) do
                         if name ~= "run" and name ~= "description" then
                             if command.description then
-                                self:log(indent .. name .. " - " .. command.description)
+                                self:log("<c=" .. self.highlight .. ">" .. indent .. name .. "</c> - " .. command.description)
                             else
-                                self:log(indent .. name)
+                                self:log("<c=" .. self.highlight .. ">" .. indent .. name .. "</c>")
                             end
 
                             -- If this command has nested subcommands, recurse
@@ -97,12 +99,14 @@ function console:constructor(positionX, positionY, width, height)
                     run = function(self)
                         self.background = 0x000000
                         self.foreground = 0x00FF00
+                        self.highlight = 0xFFFFFF
                         self.headcolor = 0x6699FF
                         self.inputcolor = 0xA0C0A9
                         database:setKey("console", "background", nil)
                         database:setKey("console", "foreground", nil)
                         database:setKey("console", "headcolor", nil)
                         database:setKey("console", "inputcolor", nil)
+                        database:setKey("console", "highlight", nil)
                         database:save("console")
                         self:reDraw()
                     end
@@ -142,6 +146,25 @@ function console:constructor(positionX, positionY, width, height)
 
                         self.background = tonumber(color) or 0x000000
                         database:setKey("console", "background", self.background, true)
+                        self:reDraw()
+                    end
+                },
+                ["HIGHLIGHT"] = {
+                    description = "Sets the highlight color (0xRRGGBB)",
+                    run = function(self, color)
+                        if color == nil then
+                            self:logError("No type or color provided")
+                            return
+                        end
+                        
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.background)
+                        if contrasted ~= tonumber(color) then
+                            self:logError("Highlight color does not have enough contrast with the background color, using " .. string.format("0x%06X", contrasted))
+                            color = contrasted
+                        end
+
+                        self.highlight = tonumber(color) or 0x000000
+                        database:setKey("console", "highlight", self.highlight, true)
                         self:reDraw()
                     end
                 },
@@ -270,6 +293,49 @@ function console:constructor(positionX, positionY, width, height)
     }
 end
 
+local function parseFormattedText(text, defaultColor)
+    local segments = {}
+    local i = 1
+    local color = defaultColor or 0xFFFFFF
+    while i <= #text do
+        if text:sub(i, i+2) == "<c=" then
+            local endTag = text:find(">", i)
+            color = tonumber(text:sub(i+3, endTag-1)) or color
+            i = endTag + 1
+        elseif text:sub(i, i+3) == "</c>" then
+            color = defaultColor or 0xFFFFFF
+            i = i + 4
+        else
+            local nextTag = text:find("<", i) or (#text + 1)
+            local chunk = text:sub(i, nextTag - 1)
+            table.insert(segments, { text = chunk, color = color })
+            i = nextTag
+        end
+    end
+    return segments
+end
+
+local function drawFormattedLine(x, y, text, scrollX, defaultColor, backgroundColor)
+    local segments = parseFormattedText(text, defaultColor)
+    local col = x
+    local remainingSkip = scrollX or 0
+
+    for _, seg in ipairs(segments) do
+        local segText = seg.text
+        local segLen = #segText
+
+        if remainingSkip >= segLen then
+            remainingSkip = remainingSkip - segLen
+        else
+            local visibleText = segText:sub(remainingSkip + 1)
+            gpu.setForeground(colorTools.ensureContrast(seg.color, backgroundColor))
+            gpu.set(col, y, visibleText)
+            col = col + #visibleText
+            remainingSkip = 0
+        end
+    end
+end
+
 -- Splits a string into parts separated by spaces, but keeps quoted substrings intact.
 -- Handles unmatched quotes by stopping at the unmatched quote and ignores escaped characters.
 -- Example: splitQuoted('hello "world test"') -> {"hello", "world test"}
@@ -362,7 +428,7 @@ function console:runCommand(command)
         database:save("console")
     end
 
-    self:log(">" .. command)
+    self:log("<c=" .. self.highlight ..">></c>" .. command)
 
     -- If we found a runnable command
     if type(node.run) == "function" then
@@ -381,9 +447,8 @@ function console:runCommand(command)
 end
 
 -- Adds a message to the console
-function console:log(message, color)
-    if color ~= nil then color = colorTools.ensureContrast(tonumber(color), self.background) end
-    table.insert(self.messages, { msg = tostring(message), col = color })
+function console:log(message)
+    table.insert(self.messages, tostring(message))
     while #self.messages > self.messageBufferSize do
         table.remove(self.messages, 1)
     end
@@ -399,7 +464,7 @@ end
 
 -- Logs a error message
 function console:logError(message)
-    self:log(message, 0xFF0000)
+    self:log("<c=0xFF0000>[ERROR]</c> " .. message)
 end
 
 -- Draws a horizontal graph to the screen
@@ -681,12 +746,14 @@ function console:drawLog()
     local totalMessages = #self.messages
     local startIdx = math.max(1, totalMessages - visibleLines + 1 - self.verticalScroll)
     local endIdx = math.min(totalMessages, startIdx + visibleLines - 1)
+    gpu.setBackground(self.background)
+    gpu.setForeground(self.foreground)
     for i = startIdx, totalMessages do
         if i > endIdx then break end
         local message = self.messages[i]
+        drawFormattedLine(1, 2 + (i - startIdx), message, self.horizontalScroll, self.foreground, self.background)
         gpu.setBackground(self.background)
-        gpu.setForeground(message.col or self.foreground)
-        gpu.set(1, 2 + (i - startIdx), message.msg:sub(self.horizontalScroll + 1, self.horizontalScroll + self.width))
+        gpu.setForeground(self.foreground)
     end
     gpu.setForeground(self.foreground)
     self:endDraw(self.positionX, self.positionY + 1, self.width, self.height - 2, 1, 2)

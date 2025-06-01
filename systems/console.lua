@@ -48,7 +48,7 @@ local intros = {
 }
 local text = intros[math.random(#intros)]
 
-console:log(centerText(text, screenWidth), console.inputcolor)
+console:log("<c=" .. console.inputcolor .. ">" .. centerText(text, screenWidth))
 console:log("")
 
 
