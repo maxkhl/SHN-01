@@ -21,9 +21,6 @@ includeCore("/shn-01/splash.lua")
 
 includeCore("/shn-01/clipboard.lua")
 
--- Give it a bit so we can see the splash screen
-for i=1, 10 do glitch.random() end
-
 -- Loads the console
 local console = require("/systems/console.lua")
 
@@ -36,8 +33,10 @@ function print(msg)
 end
 
 -- Overrides the default error function to use the console
-function error(msg)
-    console:logError(msg)
+function error(msg, depth)
+    depth = depth or 0
+    local info = debug.getinfo(3 + depth, "Sl") -- Get info about the *caller*
+    console:logError((info.short_src or "unknown") .. ":" .. (info.currentline or "unknown") .. "<c=0xFF00FF>></c>" .. msg)
 end
 
 -- Load further libraries

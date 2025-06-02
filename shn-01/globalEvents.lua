@@ -18,3 +18,5 @@ globalEvents.onDrop = new("/shn-01/event")
 globalEvents.onDrag = new("/shn-01/event")
 -- Scrolling
 globalEvents.onScroll = new("/shn-01/event")
+-- When the system is ready to use
+globalEvents.onSystemReady = new("/shn-01/event")

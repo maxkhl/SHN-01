@@ -30,3 +30,7 @@ for i = 1, #splashLogo do
     gpu.set(startX, startY + i, splashLogo[i])
 end
 
+local timer = require("/systems/timer.lua")
+timer.add(10, function()
+    globalEvents.onSystemReady:fire() -- Notify that the system is ready after the splash screen
+end)

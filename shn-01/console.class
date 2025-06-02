@@ -452,6 +452,7 @@ function console:log(message)
     while #self.messages > self.messageBufferSize do
         table.remove(self.messages, 1)
     end
+    if not self.running then return end
     if self.verticalScroll > 0 then
         self.verticalScroll = self.verticalScroll + 1
         if not self.unseenMessages then
@@ -832,6 +833,8 @@ end
 -- Updates the console title
 function console:setTitle(title)
     self.title = title
+
+    if not self.running then return end
     self:drawHead()
 end
 

@@ -4,8 +4,9 @@ local screenWidth, screenHeight = gpu.getResolution()
 local console = new("/shn-01/console", 1, 1, screenWidth, screenHeight)
 if not console then return nil end
 
-console:start()
-console:setTitle("Console")
+globalEvents.onSystemReady:subscribe(function()
+  console:start()
+end)
 
 local function centerText(text, width, fillChar)
   fillChar = fillChar or " "
@@ -50,6 +51,5 @@ local text = intros[math.random(#intros)]
 
 console:log("<c=" .. console.inputcolor .. ">" .. centerText(text, screenWidth))
 console:log("")
-
 
 return console

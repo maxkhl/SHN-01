@@ -33,6 +33,16 @@ function t.remove(callback)
   end
 end
 
+t.delayedFunctions = {}
+-- Delays a function to the next update loop.
+function t.delay(callback)
+  if type(callback) ~= "function" then
+    error("TIMER.DELAY: Callback must be a function")
+    return false
+  end
+  table.insert(t.delayedFunctions, callback)
+end
+
 
 -- Update loop
 t.oldTime = computer.uptime()
@@ -53,12 +63,21 @@ function t.update()
       end
     end
   end
+
+  -- Handle delayed functions
+  for id, callback in pairs(t.delayedFunctions) do
+    local success, reason = pcall(callback)
+    if not success then
+      error("TIMER.DELAY: Error in delayed function: " .. tostring(reason))
+    end
+    t.delayedFunctions[id] = nil -- Remove after execution
+  end
 end
-globalEvents = require("systems/globalEvents.lua")
 globalEvents.onTick:subscribe(t.update)
 
 
-local console = require("systems/console.lua")
+local console = require("/systems/console.lua")
+
 console:addCommand("TIMER.LIST", "Lists currently running timers", function(self)
   for key, timer in pairs(t.timers) do
     print(tostring(key) .. ' - ' .. tostring(timer.delay) .. ' - ' .. tostring(timer.callback) .. ' - ' .. tostring(timer.reset))

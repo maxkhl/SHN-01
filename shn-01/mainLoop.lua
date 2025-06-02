@@ -13,7 +13,6 @@ local netMsgPerSecond = 0
 
 local console = require("/systems/console.lua")
 
-
 -- The main update loop
 while true do
   local e = {computer.pullSignal(0.05)}
