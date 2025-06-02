@@ -4,7 +4,16 @@ function newClass(base)
     cls.__index = cls
 
     function cls:new(...)
-        local instance = setmetatable({}, cls)
+        local instance = setmetatable({}, {
+            __index = cls,
+            __tostring = function(self)
+                if type(self.__tostring) == "function" then
+                    return self:__tostring()
+                else
+                    return "<" .. tostring(cls) .. " instance>"
+                end
+            end
+        })
         if instance.constructor then
             instance:constructor(...)
         end

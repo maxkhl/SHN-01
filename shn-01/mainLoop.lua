@@ -60,11 +60,12 @@ while true do
       local t = os.time() % 24000
       local h, m = math.floor(t / 1000 + 6) % 24, math.floor((t % 1000) / 1000 * 60)
 
-      console:setTitle("Console -" .. 
-      " TPS:" .. tostring(tps) .. 
+      console:setTitle("" .. 
+      "TPS:" .. tostring(tps) .. 
       " Mem:" .. string.format("%.2f", memory) .. "%" .. 
       " Time:" .. string.format("%02d:%02d", h, m) .. 
       " Net:" .. tostring(netMsgPerSecond) .. "msg/s")
+
     end
   end
 end

@@ -9,6 +9,7 @@ function protocol:constructor(name, port, description, sequences)
     assert(type(sequences) == "table", "Invalid sequences, expected table")
 
     self.name = name
+    self.description = description
     self.port = port
 
     self.sessions = {}
@@ -19,6 +20,11 @@ function protocol:constructor(name, port, description, sequences)
         self.sequences[seq.id] = seq
     end
     
+end
+
+function protocol:__tostring()
+    assert(self, "Must be called on a object")
+    return "<c=0xFFFF00>[" .. self.name .. "]</c> " .. self.description .. " on port <c=0xFFFF00>" .. self.port .. "</c>"
 end
 
 function protocol:start()
@@ -56,7 +62,7 @@ function protocol:start()
         end
     end)
 
-    print("Protocol '" .. self.name .. "' started on port " .. self.port)
+    print("<c=0xFF00FF>></c>" ..tostring(self))
 end
 
 function protocol:startSession(sequenceID, ...)

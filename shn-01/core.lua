@@ -10,17 +10,19 @@ includeCore("/shn-01/tools.lua")
 includeCore("/shn-01/file.lua")
 includeCore("/shn-01/include.lua")
 includeCore("/shn-01/colorTools.lua")
-includeCore("/shn-01/splash.lua")
-
-includeCore("/shn-01/oop.lua")
 
 -- Create global events so systems can dock onto them already
+
+includeCore("/shn-01/oop.lua")
 includeCore("/shn-01/globalEvents.lua")
+
+includeCore("/shn-01/glitch.lua")
+includeCore("/shn-01/splash.lua")
 
 includeCore("/shn-01/clipboard.lua")
 
 -- Give it a bit so we can see the splash screen
-computer.pullSignal(3)
+for i=1, 10 do glitch.random() end
 
 -- Loads the console
 local console = require("/systems/console.lua")

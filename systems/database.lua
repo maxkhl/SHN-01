@@ -69,11 +69,14 @@ function database:getKey(application, key)
     end
 
     if not self.buffer[application][key] then
-        database:load(application)
-        if not self.buffer[application][key] then
+        if database:load(application) then
+            if self.buffer[application][key] == nil then
+                return nil
+            end
+            return self.buffer[application][key]
+        else
             return nil
         end
-        return self.buffer[application][key]
     end
 
     return self.buffer[application][key]
@@ -124,6 +127,7 @@ function database:load(application)
                     value = tonumber(value)
                 elseif vtype == "boolean" then
                     value = value == "true"
+
                 end
                 self.buffer[application][key] = value
             end

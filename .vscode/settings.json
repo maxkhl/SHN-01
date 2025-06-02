@@ -23,7 +23,8 @@
         "newClass",
         "colorTools",
         "server",
-        "getAbsolutePath"
+        "getAbsolutePath",
+        "glitch"
     ],
     "files.associations": {
         "*.class": "lua"

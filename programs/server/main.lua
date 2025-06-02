@@ -4,7 +4,6 @@ local modem = getComponent("modem")
 
 modem.open(20)
 
-print("Server runnning")
 globalEvents.onNetMessageReceived:subscribe(function(receiver, sender, port, distance, ...)
     local args = {...}
     for i=1, #args do
@@ -13,7 +12,7 @@ globalEvents.onNetMessageReceived:subscribe(function(receiver, sender, port, dis
 end)
 
 server.protocols = {}
-
+print("<c=0xFF00FF>Initializing hive subsystems...</c>")
 -- Initialize protocols
 local fileSystem = fileSystem()
 for k, v in pairs(fileSystem.list(getAbsolutePath("network/protocols"))) do

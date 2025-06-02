@@ -12,9 +12,9 @@ end
 crypto = {}
 
 -- Generates a unique ID based on the current time, uptime, and a random number
-math.randomseed(os.time() + computer.uptime() * 1000)
 function crypto.sessionID()
   local nano = computer.uptime()    -- floating point uptime
+  math.randomseed(os.time() + computer.uptime() * 1000)
   local rand = math.random(100000, 999999)
   return string.format("s%x%x", nano * 1000, rand)
 end
