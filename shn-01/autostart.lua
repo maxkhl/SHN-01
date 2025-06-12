@@ -1,1 +1,3 @@
-include("/programs/server/main.lua")
+globalEvents.onSystemReady:subscribe(function()
+    include("/programs/server/main.lua")
+end)

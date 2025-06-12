@@ -19,7 +19,9 @@ function event:fire(...)
     for i, listener in pairs(self.listener) do
         local ok, err = pcall(listener, ...)
         if not ok then
-            error("Listener Error:" .. tostring(err))
+            local debuginfo = debug.getinfo(listener)
+            local tback = ""
+            error("Event listener error:\n" .. debuginfo.short_src .. ":" .. debuginfo.linedefined .. " " .. err)
         end
     end
 end

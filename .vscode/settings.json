@@ -24,7 +24,8 @@
         "colorTools",
         "server",
         "getAbsolutePath",
-        "glitch"
+        "glitch",
+        "inject"
     ],
     "files.associations": {
         "*.class": "lua"

@@ -1,7 +1,7 @@
 local clientFlash = {}
 
-local console = require("systems/console")
-local minify = require("systems/minify")
+local console = require("../systems/console")
+local minify = require("../systems/minify")
 
 console:addCommand("FLASH.SIZETEST", "Tests the compression on the client file", function(cons, compressionLevel)
     local fileContent = nil
@@ -14,7 +14,8 @@ console:addCommand("FLASH.SIZETEST", "Tests the compression on the client file",
     elseif compressionLevel == "HIGH" then
         fileContent = file.readWithIncludesMinified("/shn-01/data/clientFlashScriptTemplate.lua", minify.parse)
     else
-        fileContent = file.readWithIncludesMinified("/shn-01/data/clientFlashScriptTemplate.lua", function(code) return code end)
+        fileContent = file.readWithIncludesMinified("/shn-01/data/clientFlashScriptTemplate.lua",
+            function(code) return code end)
     end
     local sizeCompressed = #fileContent --#minify.parse(file)
     cons:log("File size: " .. sizeCompressed .. " bytes")

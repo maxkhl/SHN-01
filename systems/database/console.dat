@@ -1,1 +1,1 @@
-com1:string=computer reboot␞com4:string=commands␞com10:string=commands␞com8:string=commands␞com5:string=computer reboot␞com3:string=computer reboot␞com9:string=computer reboot␞com6:string=commands␞com7:string=computer reboot␞com2:string=commands␞
+com9:string=flash sizetest high␞com2:string=computer reboot␞com7:string=flash sizetest medium␞com4:string= Tests the compression on the client file  ␞com10:string=computer reboot␞com6:string=flash sizetest high␞com8:string=flash sizetest low␞com1:string=computer restart␞com5:string=flash sizetest␞com3:string=commands␞

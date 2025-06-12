@@ -2,7 +2,7 @@ local command = newClass(class("../protocol"))
 
 function command:constructor()
     assert(self, "Must be called on a object")
-    self.base:constructor("STEM", 2031, "Signal Transfer & Event Management", {
+    self.base:constructor("FILE", 2031, "File Transfer", {
 
         -- Define the command sequences here
         -- Example: new("sequence", "commandName", serverFunc, clientFunc)

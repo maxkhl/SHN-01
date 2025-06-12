@@ -2,7 +2,7 @@ local command = newClass(class("../protocol"))
 
 function command:constructor()
     assert(self, "Must be called on a object")
-    self.base:constructor("ECHO", 2022, "Exchange Coordinator for Hive Operations", {
+    self.base:constructor("ECHO", 2022, "Message Relay", {
 
         -- Define the command sequences here
         -- Example: new("sequence", "commandName", serverFunc, clientFunc)

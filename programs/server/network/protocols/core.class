@@ -1,8 +1,8 @@
-local command = newClass(class("../protocol"))
+local command = newClass(class("../protocol", true))
 
 function command:constructor()
     assert(self, "Must be called on a object")
-    self.base:constructor("CORE", 2015, "Centralized Object Resource Exchange", {
+    self.base:constructor("CORE", 2015, "Basic communications", {
 
         -- Define the command sequences here
         -- Example: new("sequence", "commandName", serverFunc, clientFunc)
