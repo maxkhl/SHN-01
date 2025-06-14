@@ -35,12 +35,12 @@ function protocol:start()
     modem.open(self.port)
 
     globalEvents.onNetMessageReceived:subscribe(function(receiver, sender, port, distance, ...)
-        if port == protocol.port then
-            local message = protocol:createMessage(sender, protocol, distance, ...)
+        if port == self.port then
+            local message = self:createMessage(sender, self, distance, ...)
             
             if self.sequences[(...)[1]] then -- message is a new sequence request
                 local sequenceID = (...)[1]
-                local sessionID = protocol:startSession(sequenceID, ...)
+                local sessionID = self:startSession(sequenceID, ...)
                 if sessionID then
                     print("Started new session with ID " .. sessionID .. " for sequence " .. sequenceID)
                 else
@@ -58,7 +58,9 @@ function protocol:start()
                 error("Unknown message type or sequence ID in protocol " .. self.name)
             end
 
-            protocol:handleMessage(receiver, sender, distance, ...)
+            if self.handleMessage then
+                self:handleMessage(receiver, sender, distance, ...)
+            end
         end
     end)
 
