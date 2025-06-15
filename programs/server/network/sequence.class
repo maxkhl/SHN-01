@@ -48,6 +48,7 @@ function sequence:constructor(name, func, timeout, timeoutCallback)
     self.startTime = os.time()
     self.timeout = timeout or 60 -- Default timeout of 60 seconds
     self.timeoutCallback = timeoutCallback
+    self.result = nil -- Result returned by the sequence when finished
 
 end
 
@@ -73,16 +74,18 @@ function sequence:process(message)
     assert(not self:checkTimeout(), "Sequence has timed out")
     assert(message, "No message given")
 
-    local ok, coSuccess, coMessage = pcall(coroutine.resume, self.routine, message)
-    if not ok then
-        error("Error resuming coroutine in " .. tostring(self) .. ": " .. tostring(coSuccess))
+    local results = {pcall(coroutine.resume, self.routine, message)}
+    if not results[1] then
+        error("Error resuming coroutine in " .. tostring(self) .. ": " .. tostring(results[2]))
     end
-    if not coSuccess then
-        error("Coroutine error in " .. tostring(self) .. ": " .. tostring(coMessage))
+    if not results[2] then
+        error("Coroutine error in " .. tostring(self) .. ": " .. tostring(results[3]))
     end
 
     if coroutine.status(self.routine) == "dead" then
         self.status = sequence.sequenceStatus.finished
+        self.result = {select(3, table.unpack(results))}
+        return self.status, table.unpack(self.result)
     end
     return self.status
 end

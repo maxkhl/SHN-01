@@ -11,4 +11,12 @@ function command:constructor()
 
 end
 
+function command:onSequenceFinished(sequence, result, sessionID)
+    if sequence.name == "handshake" and result then
+        if server and server.addClient then
+            server:addClient(result)
+        end
+    end
+end
+
 return command
