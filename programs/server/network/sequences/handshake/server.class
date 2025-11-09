@@ -3,20 +3,19 @@ local handshake = newClass(class("../../sequence"))
 function handshake:constructor()
     assert(self, "Must be called on a object")
     self.base:constructor("handshake",
-    function(sessionID, ...)
-        -- Server-side handshake logic
-        print("Server-side handshake initiated for session ID:", sessionID)
-        -- Simulate some processing
-        coroutine.yield("Processing server handshake...")
-        print("Server-side handshake completed")
-    end, 
-    function(sessionID, ...)
-        -- Client-side handshake logic
-        print("Client-side handshake initiated for session ID:", sessionID)
-        -- Simulate some processing
-        coroutine.yield("Processing client handshake...")
-        print("Client-side handshake completed")
-    end)
+        function(message)
+            -- Server-side handshake logic
+            print("Server-side handshake initiated for address:", message.remoteAddress)
+            -- Simulate some processing
+            coroutine.yield("Processing server handshake...")
+
+            -- Create a client object for this connection
+            local clientClass = class("../../client.class")
+            local client = clientClass:new(message.remoteAddress, message.protocol)
+
+            print("Server-side handshake completed")
+            return client
+        end)
 end
 
 return handshake

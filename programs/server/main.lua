@@ -1,4 +1,11 @@
 server = {}
+server.clients = {}
+
+function server:addClient(client)
+    assert(client, "No client object given")
+    self.clients[client.address] = client
+    print("New client registered: " .. tostring(client.address))
+end
 
 local modem = getComponent("modem")
 
