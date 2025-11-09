@@ -33,6 +33,8 @@ function fw.Add(filePath, callback)
     fw.watchedFiles[filePath].event.Subscribe(callback)
     
     if not fw.fileWatchTimerId then
+        -- Ensure we don't pass an empty interval into the event.timer call
+        if not fw.fileWatchInterval then fw.fileWatchInterval = 20 end
         fw.fileWatchTimerId = event.timer(fw.fileWatchInterval, fw.ListenLoop, fw.fileWatchInterval)
     end
 end

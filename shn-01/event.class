@@ -20,8 +20,9 @@ function event:fire(...)
         local ok, err = pcall(listener, ...)
         if not ok then
             local debuginfo = debug.getinfo(listener)
-            local tback = ""
-            error("Event listener error:\n" .. debuginfo.short_src .. ":" .. debuginfo.linedefined .. " " .. err)
+            -- Include a full traceback from the listener error to help debugging
+            local trace = debug.traceback(tostring(err), 2)
+            error("Event listener error:\n" .. debuginfo.short_src .. ":" .. debuginfo.linedefined .. " " .. tostring(err) .. "\n" .. trace)
         end
     end
 end

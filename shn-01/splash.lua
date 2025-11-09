@@ -9,6 +9,10 @@ if skipSplash then
     local timer = require("/systems/timer.lua")
     timer.delay(function() globalEvents.onSystemReady:fire() end) -- Notify that the system is ready immediately
 else
+    -- Enable glitches during the splash screen only (they're disabled in the console)
+    if glitch and type(glitch.enable) == "function" then
+        glitch.enable()
+    end
     local gpu = getComponent("gpu")
 
     local screenWidth, screenHeight = gpu.getResolution()
@@ -48,5 +52,9 @@ else
     local timer = require("/systems/timer.lua")
     timer.add(10, function()
         globalEvents.onSystemReady:fire() -- Notify that the system is ready after the splash screen
+        -- disable runtime splash glitches after the splash completes
+        if glitch and type(glitch.disable) == "function" then
+            glitch.disable()
+        end
     end)
 end

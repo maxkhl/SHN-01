@@ -23,8 +23,36 @@ globalEvents.onSystemReady:subscribe(function()
     burnScreen = false
 end)
 
+-- Runtime enable/disable: keep glitches off in the console by default,
+-- but allow temporary enabling (e.g. for the splash screen).
+local runtimeEnabled = false
+local tickSubId = nil
+
+function glitch.enable()
+    if tickSubId then return end
+    runtimeEnabled = true
+    tickSubId = globalEvents.onTick:subscribe(function()
+        -- Lowered frequency: fewer glitches during splash to reduce memory/CPU pressure
+        if rand() < 0.01 then
+            glitch.random()
+        end
+    end)
+end
+
+function glitch.disable()
+    if not tickSubId then runtimeEnabled = false; return end
+    globalEvents.onTick:unsubscribe(tickSubId)
+    tickSubId = nil
+    runtimeEnabled = false
+end
+
+-- Defensive limits to avoid exhausting GPU buffers / memory during heavy glitching
+local maxConcurrentGlitchBuffers = 2
+local activeGlitchBuffers = 0
+
 function glitch.random()
-    if not doGlitch then return end
+    -- Respect persistent DB setting (`doGlitch`) OR a temporary runtime enable (for splash)
+    if not doGlitch and not runtimeEnabled then return end
     if rand() < 0.15 then
         glitch.screen(burnScreen)
     else
@@ -67,6 +95,11 @@ end
 function glitch.burst(dirtyCleanup)
     if not doGlitch then return end
 
+    -- Prevent too many concurrent buffer allocations
+    if activeGlitchBuffers >= maxConcurrentGlitchBuffers then
+        return
+    end
+
     local burstWidth = rand(6, math.floor(screenWidth / 4))
     local burstHeight = rand(3, math.floor(screenHeight / 8))
 
@@ -89,7 +122,11 @@ function glitch.burst(dirtyCleanup)
     local buffer
     if not dirtyCleanup then
         buffer = gpu.allocateBuffer()
-        if not buffer then return end
+        if not buffer then
+            -- allocation failed, skip this burst to avoid 'not enough memory'
+            return
+        end
+        activeGlitchBuffers = activeGlitchBuffers + 1
         gpu.setActiveBuffer(0)
         gpu.bitblt(buffer, 1, 1, burstWidth, burstHeight, 0, x, y)
     end
@@ -145,9 +182,20 @@ function glitch.burst(dirtyCleanup)
 
     timer.delay(function()
         if not dirtyCleanup then
-            gpu.setActiveBuffer(0)
-            gpu.bitblt(0, x, y, burstWidth, burstHeight, buffer, 1, 1)
-            gpu.freeBuffer(buffer)
+            -- protect buffer restore/free so errors don't leak buffers
+            local ok, err = pcall(function()
+                gpu.setActiveBuffer(0)
+                gpu.bitblt(0, x, y, burstWidth, burstHeight, buffer, 1, 1)
+                gpu.freeBuffer(buffer)
+            end)
+            if not ok then
+                -- Attempt best-effort cleanup
+                pcall(function()
+                    gpu.freeBuffer(buffer)
+                end)
+                print("<c=0xFF0000>glitch.burst: error during restore: " .. tostring(err) .. "</c>")
+            end
+            activeGlitchBuffers = math.max(0, activeGlitchBuffers - 1)
         end
     end)
 end
@@ -172,14 +220,20 @@ function glitch.screen(dirtyCleanup)
     end
 
     -- Allocate buffers
+    -- Prevent too many concurrent buffer allocations
+    if activeGlitchBuffers >= maxConcurrentGlitchBuffers then
+        return
+    end
+
     local originalBuffer = gpu.allocateBuffer()
     if not originalBuffer then return end
 
     local glitchBuffer = gpu.allocateBuffer()
     if not glitchBuffer then
-        gpu.freeBuffer(originalBuffer)
+        pcall(function() gpu.freeBuffer(originalBuffer) end)
         return
     end
+    activeGlitchBuffers = activeGlitchBuffers + 2
 
     -- Save the screen
     gpu.setActiveBuffer(0)
@@ -219,19 +273,22 @@ function glitch.screen(dirtyCleanup)
     gpu.bitblt(0, 1, 1, screenWidth, screenHeight, glitchBuffer, 1, 1)
 
 
-    timer.delay(function()
-      -- Restore screen from saved buffer
-      gpu.bitblt(0, restoreX, restoreY, saveW, saveH, originalBuffer, 1, 1)
-
-      gpu.freeBuffer(originalBuffer)
-      gpu.freeBuffer(glitchBuffer)
-    end)
+        timer.delay(function()
+            -- Restore screen from saved buffer; protect against errors so buffers are freed
+            local ok, err = pcall(function()
+                gpu.bitblt(0, restoreX, restoreY, saveW, saveH, originalBuffer, 1, 1)
+                gpu.freeBuffer(originalBuffer)
+                gpu.freeBuffer(glitchBuffer)
+            end)
+            if not ok then
+                -- Best-effort cleanup
+                pcall(function() gpu.freeBuffer(originalBuffer) end)
+                pcall(function() gpu.freeBuffer(glitchBuffer) end)
+                print("<c=0xFF0000>glitch.screen: error during restore: " .. tostring(err) .. "</c>")
+            end
+            activeGlitchBuffers = math.max(0, activeGlitchBuffers - 2)
+        end)
 end
 
-if doGlitch then
-    globalEvents.onTick:subscribe(function()
-        if rand() < 0.05 then
-            glitch.random()
-        end
-    end)
-end
+-- Note: glitches are started/stopped at runtime via `glitch.enable()` / `glitch.disable()`
+-- (e.g. `splash.lua` enables glitches for the splash and disables them after).
