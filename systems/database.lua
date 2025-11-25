@@ -2,6 +2,7 @@ local database = {}
 
 database.buffer = {}
 database.baseFolder = "/systems/database/"
+local util = require("/systems/minify/util.lua")
 
 function database:setKey(application, key, value, doSave)
     doSave = doSave or false
@@ -10,8 +11,8 @@ function database:setKey(application, key, value, doSave)
         error("Invalid arguments: application and key must be strings (" .. application .. " " .. key .. ")")
         return false
     end
-    if value ~= nil and type(value) ~= "string" and type(value) ~= "number" and type(value) ~= "boolean" then
-        error("Invalid value type: must be nil, string, number, or boolean (" .. application .. " " .. key .. ")")
+    if value ~= nil and type(value) ~= "string" and type(value) ~= "number" and type(value) ~= "boolean" and type(value) ~= "table" then
+        error("Invalid value type: must be nil, string, number, boolean or table (" .. application .. " " .. key .. ")")
         return false
     end
 
@@ -55,7 +56,13 @@ function database:save(application)
 
     for key, value in pairs(self.buffer[application]) do
         local vtype = type(value)
-        local data = string.format("%s:%s=%s␞", key, vtype, tostring(value))
+        local outVal = nil
+        if vtype == "table" then
+            outVal = util.PrintTable(value)
+        else
+            outVal = tostring(value)
+        end
+        local data = string.format("%s:%s=%s␞", key, vtype, outVal)
         fs.write(file, data)
     end
 
@@ -127,7 +134,18 @@ function database:load(application)
                     value = tonumber(value)
                 elseif vtype == "boolean" then
                     value = value == "true"
-
+                elseif vtype == "table" then
+                    local fn, err = load("return " .. value)
+                    if fn then
+                        local ok, res = pcall(fn)
+                        if ok and type(res) == "table" then
+                            value = res
+                        else
+                            value = nil
+                        end
+                    else
+                        value = nil
+                    end
                 end
                 self.buffer[application][key] = value
             end

@@ -1,0 +1,19 @@
+--[[
+    SHN-01 Network Echo Protocol Class
+        This class represents the ECHO protocol in the SHN-01 system.
+        It handles message relay sequences and related operations.
+]]
+local command = newClass(class("../protocol"))
+
+function command:constructor(server)
+    assert(self, "Must be called on a object")
+    self.base:constructor(server, "ECHO", 2022, "Message Relay", {
+
+        -- Define the command sequences here
+        -- Example: new("sequence", "commandName", serverFunc, clientFunc)
+        class("../sequence"):create(getAbsolutePath("../sequences/bounce/manifest.lua"), true)
+    })
+
+end
+
+return command

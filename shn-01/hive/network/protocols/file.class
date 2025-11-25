@@ -1,0 +1,19 @@
+--[[
+    SHN-01 Network File Protocol Class
+        This class represents the FILE protocol in the SHN-01 system.
+        It handles file transfer sequences and related operations.
+]]
+local command = newClass(class("../protocol"))
+
+function command:constructor(server)
+    assert(self, "Must be called on a object")
+    self.base:constructor(server, "FILE", 2031, "File Transfer", {
+
+        -- Define the command sequences here
+        -- Example: new("sequence", "commandName", serverFunc, clientFunc)
+        class("../sequence"):create(getAbsolutePath("../sequences/transmit/manifest.lua"), true)
+    })
+
+end
+
+return command

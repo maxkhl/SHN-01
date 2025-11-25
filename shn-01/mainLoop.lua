@@ -11,7 +11,6 @@ local tpsSecond = 0
 local netMsgCount = 0
 local netMsgPerSecond = 0
 
-local console = require("/systems/console.lua")
 
 -- The main update loop
 while true do
@@ -51,7 +50,7 @@ while true do
     netMsgPerSecond = netMsgCount
     netMsgCount = 0
     tpsSecond = computer.uptime()
-    if console then
+    if screen then
       local totalMemory = computer.totalMemory()
       local freeMemory = computer.freeMemory()
       local memory = (totalMemory - freeMemory) / totalMemory * 100
@@ -59,7 +58,7 @@ while true do
       local t = os.time() % 24000
       local h, m = math.floor(t / 1000 + 6) % 24, math.floor((t % 1000) / 1000 * 60)
 
-      console:setTitle("" .. 
+      screen:setTitle("" .. 
       "TPS:" .. tostring(tps) .. 
       " Mem:" .. string.format("%.2f", memory) .. "%" .. 
       " Time:" .. string.format("%02d:%02d", h, m) .. 

@@ -1,3 +1,9 @@
+--[[
+    SHN-01 Network Message Class
+        This class represents a network message in the SHN-01 system.
+        It encapsulates the details of a message, including the remote address,
+        protocol, distance, and data payload.
+]]
 local message = newClass()
 function message:constructor(remoteAddress, protocol, distance, ...)
     assert(remoteAddress, "No remote address given")

@@ -1,0 +1,50 @@
+--[[
+    SHN-01 View Class
+        This class represents a view in the SHN-01 system.
+        It handles rendering and updating the view on the screen.
+]]
+local view = newClass()
+
+
+function view:constructor(screen)
+    assert(screen, "No screen given")
+    assert(self, "Must be called on a object")
+
+    self.screen = screen
+end
+
+function view:render(startY, endY)
+    -- Override in subclasses
+    error("Render method not implemented for view")
+end
+
+function view:handleInput(text)
+    -- Override in subclasses
+    error("HandleInput method not implemented for view")
+end
+
+function view:onKey(char, code)
+    -- Override in subclasses
+    error("OnKey method not implemented for view")
+end
+
+-- Refreshes the view (e.g., after resizing)
+function view:refresh(full)
+    if not self.screen.running or 
+        not self.screen.drawBuffer or 
+        not self.screen.view == self then 
+        return
+    end
+    if full then
+        self.screen:reDraw()
+    else
+        self.screen:drawView()
+    end
+end
+
+-- Returns the current vertical size of the view
+function view:getVerticalSize()
+    error("getVerticalSize method not implemented for view")
+end
+
+return view

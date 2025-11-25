@@ -1,0 +1,18 @@
+--[[
+    SHN-01 Network Node Class
+        This class represents a network node in the SHN-01 system
+]]
+local node = newClass()
+
+function node:constructor(address, nodeId)
+    assert(self, "Must be called on a object")
+    assert(address, "No remote address given")
+    assert(nodeId, "No node ID given")
+
+    self.address = address
+    self.nodeId = nodeId
+end
+
+
+return node
+

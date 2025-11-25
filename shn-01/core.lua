@@ -14,15 +14,24 @@ inject("tools.lua")
 inject("colorTools.lua")
 
 -- Create global events so systems can dock onto them already
-
 inject("globalEvents.lua")
+
+-- Initialize the screen
+screen = new("/shn-01/screen", 1, 1, screenWidth, screenHeight)
+globalEvents.onSystemReady:subscribe(function()
+  screen:start()
+end)
+
+-- Initialize the console and load it into the screen
+console = new("/shn-01/console", screen)
+screen:setView(console)
 
 inject("glitch.lua")
 
-inject("clipboard.lua")
+-- uncomment to get glitches in console
+-- glitch.enable()
 
--- Loads the console
-local console = require("/systems/console.lua")
+inject("clipboard.lua")
 
 inject("clientFlash.lua")
 
@@ -45,7 +54,12 @@ inject("splash.lua")
 -- Load further libraries
 inject("commands.lua")
 
--- Main server startup
+-- Startup hive server when system is ready
+globalEvents.onSystemReady:subscribe(function()
+    include("hive/hive.lua")
+end)
+
+-- Autostart systems and programs
 inject("autostart.lua")
 
 -- This will keep the system running and handle events/timing

@@ -27,6 +27,7 @@ function minify.parseVeryCheap(source)
   local lines = {}
   for line in source:gmatch("[^\r\n]+") do
     -- Remove comments (only simple single line -- comments)
+    -- strip Lua single-line comments
     local codeOnly = line:gsub("%-%-.*$", "")
     -- Trim leading/trailing spaces
     codeOnly = codeOnly:match("^%s*(.-)%s*$")

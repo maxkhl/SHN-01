@@ -1,3 +1,3 @@
 globalEvents.onSystemReady:subscribe(function()
-    include("/programs/server/main.lua")
+    --include("hive/hive.lua")
 end)

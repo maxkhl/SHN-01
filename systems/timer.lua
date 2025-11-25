@@ -76,9 +76,8 @@ end
 globalEvents.onTick:subscribe(t.update)
 
 
-local console = require("/systems/console.lua")
 
-console:addCommand("TIMER.LIST", "Lists currently running timers", function(self)
+console:addCommand("TIMER.LIST", "Lists currently running timers", function()
   for key, timer in pairs(t.timers) do
     print(tostring(key) .. ' - ' .. tostring(timer.delay) .. ' - ' .. tostring(timer.callback) .. ' - ' .. tostring(timer.reset))
   end

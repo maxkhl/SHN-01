@@ -1,0 +1,468 @@
+local screen = newClass()
+
+local gpu = getComponent("gpu")
+
+local database = require("/systems/database")
+
+-- Constructor for the screen class
+function screen:constructor()
+
+    self.input = ""
+    self.drawBuffer = nil
+
+    self.inputCursor = 1
+
+    self.running = false
+
+    self.title = "Initializing..."
+
+    local gpu = getComponent("gpu")
+    self.positionX = 1
+    self.positionY = 1
+    self.width, self.height = gpu.getResolution()
+
+    self.verticalScroll = 0
+    self.horizontalScroll = 0
+    self.onKeyDownEventId = nil
+    self.onScrollEventId = nil
+    self.verticalScrollEnd = true
+
+    self.view = nil
+
+    self.background = 0x000000
+    self.foreground = 0x00FF00
+    self.headcolor = 0x6699FF
+    self.inputcolor = 0xA0C0A9
+    self.highlight = 0xFFFFFF
+
+end
+
+function screen:setView(view)
+    self.view = view
+    --self:drawView()
+end
+
+local function parseFormattedText(text, defaultColor)
+    local segments = {}
+    local i = 1
+    local color = defaultColor or 0xFFFFFF
+    while i <= #text do
+        if text:sub(i, i + 2) == "<c=" then
+            local endTag = text:find(">", i)
+            -- If there's no closing '>' treat the '<' as a literal character
+            if endTag then
+                local parsed = tonumber(text:sub(i + 3, endTag - 1))
+                if parsed then color = parsed end
+                i = endTag + 1
+            else
+                table.insert(segments, { text = "<", color = color })
+                i = i + 1
+            end
+        elseif text:sub(i, i + 3) == "</c>" then
+            color = defaultColor or 0xFFFFFF
+            i = i + 4
+        else
+            -- Find the next '<' after the current position to avoid matching the
+            -- same '<' repeatedly (which caused an infinite loop).
+            local nextTag = text:find("<", i + 1) or (#text + 1)
+            local chunk = text:sub(i, nextTag - 1)
+            table.insert(segments, { text = chunk, color = color })
+            i = nextTag
+        end
+    end
+    return segments
+end
+
+local function drawFormattedLine(x, y, text, scrollX, defaultColor, backgroundColor)
+    local segments = parseFormattedText(text, defaultColor)
+    local col = x
+    local remainingSkip = scrollX or 0
+
+    for _, seg in ipairs(segments) do
+        local segText = seg.text
+        local segLen = #segText
+
+        if remainingSkip >= segLen then
+            remainingSkip = remainingSkip - segLen
+        else
+            local visibleText = segText:sub(remainingSkip + 1)
+            gpu.setForeground(colorTools.ensureContrast(seg.color, backgroundColor))
+            gpu.set(col, y, visibleText)
+            col = col + #visibleText
+            remainingSkip = 0
+        end
+    end
+end
+
+
+
+local keyboard = require("/systems/keyboard.lua")
+
+local function setCharAt(str, index, char, padChar)
+    padChar = padChar or " " -- default padding is a space
+    if index < 1 then
+        return str           -- invalid index
+    end
+
+    local currentLength = #str
+
+    if index <= currentLength then
+        -- Replace existing character
+        return str:sub(1, index - 1) .. char .. str:sub(index + 1)
+    else
+        -- Pad string and set character at index
+        local padding = string.rep(padChar, index - currentLength - 1)
+        return str .. padding .. char
+    end
+end
+
+local function insertCharAt(str, index, char, padChar)
+    padChar = padChar or " " -- default padding
+    if index < 1 then
+        return str           -- invalid index
+    end
+
+    local currentLength = #str
+
+    if index > currentLength + 1 then
+        -- Pad string up to (index - 1), then insert char
+        local padding = string.rep(padChar, index - currentLength - 1)
+        return str .. padding .. char
+    else
+        -- Insert char and shift the rest
+        return str:sub(1, index - 1) .. char .. str:sub(index)
+    end
+end
+
+function screen:scrollHorizontal(speed)
+    speed = speed or 1
+    self.horizontalScroll = self.horizontalScroll + speed
+    if self.horizontalScroll < 0 then
+        self.horizontalScroll = 0
+    end
+    self:drawView()
+    self:drawHead()
+end
+
+function screen:scrollVertical(speed)
+    speed = speed or 1
+    self:jumpVertical(self.verticalScroll - speed)
+end
+
+function screen:jumpVertical(position)
+    if position < 0 then position = 0 end
+    self.verticalScroll = position
+    self.verticalScrollEnd = self.verticalScroll >= self.view:getVerticalSize() - self.height + 2
+    
+    self:drawView()
+    self:drawHead()
+end
+
+function screen:jumpVerticalStart()
+    self:jumpVertical(0)
+end
+
+function screen:jumpVerticalEnd()
+    self:jumpVertical(self.view:getVerticalSize() - self.height + 2)
+end
+
+function screen:setInput(value)
+    self.input = value
+    self.inputCursor = #self.input + 1
+    self:drawInput()
+end
+
+-- Registers a key press
+function screen:registerKey(char, code)
+    local success, err = pcall(function()
+        if code == keyboard.keys.enter or code == keyboard.keys.numpadenter then
+            if self.input == "" then return end
+            --self:scrollVertical(-math.huge)
+            
+            local value = self.view:handleInput(self.input)
+            if value then
+                self.input = value
+            else
+                self.input = ""
+            end
+
+            self.inputCursor = 1
+            self:drawInput()
+        elseif code == keyboard.keys.escape then
+            self.input = ""
+            self.inputCursor = 1
+            self:drawInput()
+        elseif code == keyboard.keys.right and keyboard:isShiftDown() then
+            local speed = 1
+            if keyboard.isControlDown() then
+                speed = 10
+            end
+            self:scrollHorizontal(speed)
+        elseif code == keyboard.keys.left and keyboard:isShiftDown() then
+            local speed = -1
+            if keyboard.isControlDown() then
+                speed = -10
+            end
+            self:scrollHorizontal(speed)
+        elseif code == keyboard.keys.up and keyboard:isShiftDown() then
+            local speed = 1
+            if keyboard.isControlDown() then
+                speed = 10
+            end
+            self:scrollVertical(speed)
+        elseif code == keyboard.keys.down and keyboard:isShiftDown() then
+            local speed = -1
+            if keyboard.isControlDown() then
+                speed = -10
+            end
+            self:scrollVertical(speed)
+        elseif code == keyboard.keys.left then
+            if self.inputCursor > 1 then
+                self.inputCursor = self.inputCursor - 1
+                self:drawInput()
+            end
+        elseif code == keyboard.keys.right then
+            if self.inputCursor <= #self.input then
+                self.inputCursor = self.inputCursor + 1
+                self:drawInput()
+            end
+        elseif code == keyboard.keys["backspace"] or char == 8 then
+            if self.inputCursor > 1 then
+                if keyboard.isShiftDown() then
+                    -- Find last space before cursor, or go to start if none
+                    local rev = self.input:sub(1, self.inputCursor - 2):reverse()
+                    local lastSpace = rev:find(" ")
+                    if lastSpace then
+                        self.input = self.input:sub(1, self.inputCursor - lastSpace - 2) ..
+                        self.input:sub(self.inputCursor)
+                        self.inputCursor = self.inputCursor - lastSpace - 1
+                    else
+                        self.input = self.input:sub(self.inputCursor)
+                        self.inputCursor = 1
+                    end
+                else
+                    self.input = self.input:sub(1, self.inputCursor - 2) .. self.input:sub(self.inputCursor)
+                    self.inputCursor = self.inputCursor - 1
+                end
+            end
+            self:drawInput()
+        elseif code == keyboard.keys["delete"] or char == 127 then
+            if self.inputCursor <= #self.input then
+                if keyboard.isShiftDown() then
+                    -- Find next space after cursor, or go to end if none
+                    local after = self.input:sub(self.inputCursor)
+                    local nextSpace = after:find(" ")
+                    if nextSpace then
+                        self.input = self.input:sub(1, self.inputCursor - 1) ..
+                        self.input:sub(self.inputCursor + nextSpace)
+                    else
+                        self.input = self.input:sub(1, self.inputCursor - 1)
+                    end
+                else
+                    self.input = self.input:sub(1, self.inputCursor - 1) .. self.input:sub(self.inputCursor + 1)
+                end
+            end
+            self:drawInput()
+        elseif code == keyboard.keys.pageUp then
+            self:scrollVertical(self.height - 2)
+        elseif code == keyboard.keys.pageDown then
+            self:scrollVertical(-(self.height - 2))
+        elseif code == keyboard.keys["end"] then
+            self:jumpVerticalEnd()
+        elseif char > 0 and not keyboard.isControlDown() then
+            self.input = insertCharAt(self.input, self.inputCursor, string.char(char))
+            self.inputCursor = self.inputCursor + 1
+            self:drawInput()
+        elseif code == keyboard.keys.v and keyboard.isControlDown() then
+            if clipboard then
+                self.input = insertCharAt(self.input, self.inputCursor, clipboard)
+                self.inputCursor = self.inputCursor + #clipboard
+                self:drawInput()
+            else
+                error("Clipboard is empty")
+            end
+        else
+            if self.view and self.view.onKey then
+                self.view:onKey(char, code)
+            end
+        end
+    end)
+    if not success then error(err) end
+end
+
+-- Draws the input line
+function screen:drawInput()
+    self:startDraw()
+    if self.input ~= "" then
+        gpu.setBackground(self.inputcolor)
+        gpu.setForeground(self.background)
+    else
+        gpu.setBackground(self.background)
+        gpu.setForeground(self.foreground)
+    end
+    gpu.fill(1, self.height, self.width, 1, " ")
+    gpu.set(1, self.height, self.input)
+    gpu.setBackground(self.background)
+    gpu.setForeground(self.foreground)
+
+    local char = self.input:sub(self.inputCursor, self.inputCursor)
+    if char == "" then char = " " end
+    gpu.set(self.inputCursor, self.height, char) -- cursor
+
+    self:endDraw(self.positionX, self.height, self.width, 1, 1, self.height)
+end
+
+-- Draws the header of the screen
+function screen:drawHead()
+    self:startDraw()
+    gpu.setBackground(self.headcolor)
+    gpu.setForeground(self.background)
+    gpu.fill(1, 1, self.width, 1, " ")
+
+    gpu.set(self.width - 10, 1, tostring(self.horizontalScroll))
+    gpu.set(self.width - 6, 1, tostring(self.verticalScroll))
+
+    if self.verticalScrollEnd then
+        gpu.set(self.width - 2, 1, "END")
+    else
+        gpu.set(self.width - 2, 1, "   ")
+    end
+    --if self.unseenMessages then
+    --    gpu.set(self.width - 2, 1, "!⬇")
+    --else
+    --    gpu.set(self.width - 2, 1, "  ")
+    --end
+
+    local drawTitle = self.title
+    if #drawTitle > self.width - 12 then
+        drawTitle = string.sub(drawTitle, 1, self.width - 15) .. "..."
+    end
+    gpu.set(1, 1, drawTitle)
+
+    gpu.setBackground(self.background)
+    gpu.setForeground(self.foreground)
+    self:endDraw(self.positionX, self.positionY, self.width, 1)
+end
+
+-- Draws the log messages
+function screen:drawView()
+    self:startDraw()
+    gpu.fill(1, 2, self.width, self.height - 2, " ")
+    local visibleLines = self.height - 2
+--[[    
+    local totalMessages = #self.messages
+    
+    
+    gpu.setBackground(self.background)
+    gpu.setForeground(self.foreground)
+    for i = startIdx, totalMessages do
+        if i > endIdx then break end
+        local message = self.messages[i]
+        drawFormattedLine(1, 2 + (i - startIdx), message, self.horizontalScroll, self.foreground, self.background)
+        gpu.setBackground(self.background)
+        gpu.setForeground(self.foreground)
+    end]]
+    if self.view then
+        local visibleLines = self.height - 2
+        local startIdx = math.max(1, 1 + self.verticalScroll)
+        local endIdx = startIdx + visibleLines - 1
+        local lines = self.view:render(startIdx, endIdx)
+        gpu.setBackground(self.background)
+        gpu.setForeground(self.foreground)
+        for i = 1, #lines do
+            drawFormattedLine(1, 1 + i, lines[i], self.horizontalScroll, self.foreground, self.background)
+            gpu.setBackground(self.background)
+            gpu.setForeground(self.foreground)
+        end
+    end
+
+    gpu.setForeground(self.foreground)
+    self:endDraw(self.positionX, self.positionY + 1, self.width, self.height - 2, 1, 2)
+end
+
+-- Clears the console
+function screen:clear()
+    self.messages = {}
+    self.horizontalScroll = 0
+    self:drawView()
+end
+
+-- Starts the console
+function screen:start()
+    if self.running then
+        error("Screen is already running")
+        return
+    end
+    self.running = true
+    self.drawBuffer = gpu.allocateBuffer(self.width, self.height)
+    self:drawHead()
+    self:drawView()
+    self:drawInput()
+    self.onKeyDownEventId = globalEvents.onKeyDown:subscribe(function(char, code) self:registerKey(char, code) end)
+    self.onScrollEventId = globalEvents.onScroll:subscribe(function(screen, x, y, direction)
+        if keyboard:isControlDown() then
+            direction = direction * 10
+        end
+        if keyboard:isShiftDown() then
+            self:scrollHorizontal(-direction)
+        else
+            self:scrollVertical(direction)
+        end
+    end)
+end
+
+-- Stops the screen
+function screen:stop()
+    if not self.running then
+        error("Screen is not running")
+        return
+    end
+    self.running = false
+    globalEvents.onKeyDown:unsubscribe(self.onKeyDownEventId)
+    gpu.fill(self.positionX, self.positionY, self.width, self.height, " ")
+    gpu.freeBuffer(self.drawBuffer)
+    self.drawBuffer = nil
+end
+
+-- Updates the screen title
+function screen:setTitle(title)
+    self.title = title
+
+    if not self.running then return end
+    self:drawHead()
+end
+
+-- Draws the entire screen again
+function screen:reDraw()
+    self:drawHead()
+    self:drawView()
+    self:drawInput()
+end
+
+-- Starts drawing
+function screen:startDraw()
+    if not self.drawBuffer then
+        error("Draw buffer is not initialized")
+        return
+    end
+    gpu.setActiveBuffer(self.drawBuffer)
+end
+
+-- Ends drawing (doBitBlt will update the screen buffer)
+function screen:endDraw(targetX, targetY, targetWidth, targetHeight, fromX, fromY)
+    targetX = targetX or self.positionX
+    targetY = targetY or self.positionY
+    targetWidth = targetWidth or self.width
+    targetHeight = targetHeight or self.height
+    if doBitBlt == nil then doBitBlt = true end
+    if not self.drawBuffer then
+        error("Draw buffer is not initialized")
+        return
+    end
+    if not gpu.bitblt(0, targetX, targetY, targetWidth, targetHeight, self.drawBuffer, fromX, fromY) then
+        error("Error drawing to the screen")
+    end
+    gpu.setActiveBuffer(0)
+end
+
+return screen

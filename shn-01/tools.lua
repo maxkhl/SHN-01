@@ -22,16 +22,17 @@ end
 
 -- Generates a persistent ID that is guaranteed to be unique across reboots
 function crypto.uniqueID()
-  local database = require("/shn-01/database.lua")
-  local id = database:get("persistentID")
-  if type(id) ~= "number" then id = nil end
-  if not id then
-    id = 1
-  else
-    id = id + 1
-  end
-  database:set("persistentID", id)
-  return string.format("u%08x", id)
+  local database = require("/systems/database.lua")
+  local counter = database:getKey("shn01", "persistentId")
+  if type(counter) ~= "number" then counter = 0 end
+  
+  counter = counter + 1
+  database:setKey("shn01", "persistentId", counter, true)
+  
+  -- Linear congruential generator: produces pseudo-random but deterministic sequence
+  -- Using parameters that cover all 16-bit space (a=25173, c=13849, m=2^16)
+  local id = (25173 * counter + 13849) % 65536
+  return string.format("%04X", id)
 end
 
 function math.levenshtein(s, t)

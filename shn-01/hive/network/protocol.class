@@ -1,23 +1,30 @@
+--[[
+    SHN-01 Network Protocol Class
+        This class represents a network protocol in the SHN-01 system.
+        It handles the creation and management of sessions and sequences for the protocol.
+]]
 local protocol = newClass()
 
 -- Creates a new event with the given name
-function protocol:constructor(name, port, description, sequences)
+function protocol:constructor(server, name, port, description, sequences)
     assert(self, "Must be called on a object")
     assert(name, "No protocol name given")
     assert(port, "No protocol port given")
     assert(type(port) == "number", "Invalid protocol port, expected number")
     assert(type(sequences) == "table", "Invalid sequences, expected table")
+    assert(server, "No server object given")
 
+    self.server = server
     self.name = name
     self.description = description
     self.port = port
 
     self.sessions = {}
 
-    -- Contains all sequences this protocol supports indexed by ID
+    -- Contains all sequences this protocol supports indexed by name
     self.sequences = {}
     for _, seq in ipairs(sequences) do
-        self.sequences[seq.id] = seq
+        self.sequences[seq.name] = seq
     end
     
 end
@@ -70,6 +77,10 @@ function protocol:start()
     end)
 
     print("<c=0xFF00FF>></c>" ..tostring(self))
+
+    for name, seq in pairs(self.sequences) do
+        print("<c=0xFF00FF>>></c>" .. tostring(seq))
+    end
 end
 
 function protocol:startSession(sequenceID, ...)
@@ -87,6 +98,7 @@ function protocol:startSession(sequenceID, ...)
     return sessionID
 end
 
+-- Processes a message for this protocol
 function protocol:process(sessionID, ...)
     assert(self, "Must be called on a object")
     local sequence = self.sessions[sessionID]
@@ -95,7 +107,11 @@ function protocol:process(sessionID, ...)
     end
 
     -- Call the sequence with the given arguments
-    return sequence:process(...)
+    sequence:process(...)
+
+    if sequence.alive == false then
+        self.sessions[sessionID] = nil
+    end
 end
 
 function protocol:createMessage(remoteAddress, protocol, distance, ...)

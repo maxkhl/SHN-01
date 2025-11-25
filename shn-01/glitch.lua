@@ -33,7 +33,7 @@ function glitch.enable()
     runtimeEnabled = true
     tickSubId = globalEvents.onTick:subscribe(function()
         -- Lowered frequency: fewer glitches during splash to reduce memory/CPU pressure
-        if rand() < 0.01 then
+        if rand() < 0.20 then
             glitch.random()
         end
     end)
@@ -53,7 +53,7 @@ local activeGlitchBuffers = 0
 function glitch.random()
     -- Respect persistent DB setting (`doGlitch`) OR a temporary runtime enable (for splash)
     if not doGlitch and not runtimeEnabled then return end
-    if rand() < 0.15 then
+    if rand() < 0.25 then
         glitch.screen(burnScreen)
     else
         glitch.burst(burnScreen)
@@ -100,8 +100,14 @@ function glitch.burst(dirtyCleanup)
         return
     end
 
-    local burstWidth = rand(6, math.floor(screenWidth / 4))
-    local burstHeight = rand(3, math.floor(screenHeight / 8))
+    -- Ensure math.random ranges are valid (upper >= lower) to avoid "interval is empty" errors
+    local bwMin, bwMax = 6, math.floor(screenWidth / 4)
+    if bwMax < bwMin then bwMax = bwMin end
+    local burstWidth = rand(bwMin, bwMax)
+
+    local bhMin, bhMax = 3, math.floor(screenHeight / 8)
+    if bhMax < bhMin then bhMax = bhMin end
+    local burstHeight = rand(bhMin, bhMax)
 
     -- In clean mode, round up to even to match 2x2 blocks
     if not dirtyCleanup then
@@ -163,9 +169,17 @@ function glitch.burst(dirtyCleanup)
       local glitchedPhrase = glitchify(phrase)
 
       -- Try to center horizontally in the burst
-      local textLen = #glitchedPhrase
-      local wordX = math.max(x, rand(x, x + burstWidth - textLen))
-      local wordY = rand(y, y + burstHeight - 1)
+            local textLen = #glitchedPhrase
+            -- Compute safe horizontal placement for the word: if it doesn't fit, anchor at x
+            local maxWordX = x + burstWidth - textLen
+            local wordX
+            if maxWordX >= x then
+                wordX = rand(x, maxWordX)
+            else
+                wordX = x
+            end
+            local maxWordY = y + burstHeight - 1
+            local wordY = rand(y, maxWordY)
 
       gpu.setForeground(rand() < 0.5 and 0xFF0000 or 0x00FF00) -- Red or green
       gpu.setBackground(0x000000)

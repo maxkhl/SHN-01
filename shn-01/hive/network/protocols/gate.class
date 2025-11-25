@@ -1,8 +1,13 @@
+--[[
+    SHN-01 Network Gate Protocol Class
+        This class represents the GATE protocol in the SHN-01 system.
+        It handles the handshake sequence and client verification process.
+]]
 local command = newClass(class("../protocol"))
 
-function command:constructor()
+function command:constructor(server)
     assert(self, "Must be called on a object")
-    self.base:constructor("GATE", 2011, "Response Verification", {
+    self.base:constructor(server, "GATE", 2011, "Response Verification", {
 
         -- Define the command sequences here
         -- Example: new("sequence", "commandName", serverFunc, clientFunc)
