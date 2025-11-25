@@ -31,3 +31,7 @@
   █ REQUIRING ONLY MINIMAL RESOURCES, SHN-01 RUNS ENTIRELY ON TIER 1  
     HARDWARE, MAKING IT ACCESSIBLE, LIGHTWEIGHT, AND IDEAL FOR  
     DEPLOYMENT IN CONSTRAINED OR EARLY-GAME ENVIRONMENTS.
+
+<img width="654" height="415" alt="grafik" src="https://github.com/user-attachments/assets/047278ab-72f9-4c46-ae1b-de973ddde648" />
+
+<img width="654" height="415" alt="grafik" src="https://github.com/user-attachments/assets/8e2313a2-2f23-457a-a2b0-a7bc037492c0" />
