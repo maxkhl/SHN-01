@@ -1,7 +1,4 @@
 commandHistory:table={
-    "hive id reset",
-    "hive node add pen1s+",
-    "hive node add pen1s-abox",
     "hive node list",
     "hive node wipe",
     "hive node add pen1s+",
@@ -48,5 +45,8 @@ commandHistory:table={
     "console clear",
     "commands",
     "console clear",
-    "commands"
+    "commands",
+    "buffer require",
+    "timer list",
+    "hdd space"
 }␞

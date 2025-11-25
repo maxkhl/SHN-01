@@ -1,73 +1,96 @@
-local console = newClass()
-
-local gpu = getComponent("gpu")
-
+--[[
+    SHN-01 Console View Class
+        This class represents the console view in the SHN-01 system.
+        It handles rendering and updating the console on the screen.                
+]]
+local console = newClass(class("view"))
 local database = require("/systems/database")
 
---local keyboard = require("keyboard")
---local event = require("event")
+function console:constructor(screen)
+    assert(self, "Must be called on a object")
+    self.base:constructor(screen)
 
--- Constructor for the console
-function console:constructor(positionX, positionY, width, height)
     self.messageBufferSize = 100
     self.messages = {}
 
     self.commandHistoryCursor = 0
-    self.commandHistoryBufferSize = 10
-    self.commandHistory = {}
-    for i = 1, self.commandHistoryBufferSize do
-        local command = database:getKey("console", "com" .. i)
-        if command then
-            table.insert(self.commandHistory, command)
-        end
-    end
+    self.commandHistoryBufferSize = 50
+    self.commandHistory = database:getKey("console", "commandHistory") or {}
+    
+    self.screen.background = database:getKey("console", "background") or 0x000000
+    self.screen.foreground = database:getKey("console", "foreground") or 0x00FF00
+    self.screen.headcolor = database:getKey("console", "headcolor") or 0x6699FF
+    self.screen.inputcolor = database:getKey("console", "inputcolor") or 0xA0C0A9
+    self.screen.highlight = database:getKey("console", "highlight") or 0xFFFFFF
 
-    self.input = ""
-    self.drawBuffer = nil
-
-    self.inputCursor = 1
-
-    self.running = false
-
-    self.title = "Console"
-
-    self.positionX = positionX
-    self.positionY = positionY
-    self.width = width
-    self.height = height
-
-    self.background = database:getKey("console", "background") or 0x000000
-    self.foreground = database:getKey("console", "foreground") or 0x00FF00
-    self.headcolor = database:getKey("console", "headcolor") or 0x6699FF
-    self.inputcolor = database:getKey("console", "inputcolor") or 0xA0C0A9
-    self.highlight = database:getKey("console", "highlight") or 0xFFFFFF
+    local gpu = getComponent("gpu")
     if gpu.getDepth() == 1 then -- no colors supported -> fallback
-        self.background = 0x000000
-        self.foreground = 0xFFFFFF
-        self.headcolor = 0xFFFFFF
-        self.inputcolor = 0xFFFFFF
-        self.highlight = 0xFFFFFF
+        self.screen.background = 0x000000
+        self.screen.foreground = 0xFFFFFF
+        self.screen.headcolor = 0xFFFFFF
+        self.screen.inputcolor = 0xFFFFFF
+        self.screen.highlight = 0xFFFFFF
     end
-
-    self.verticalScroll = 0
-    self.horizontalScroll = 0
-    self.onKeyDownEventId = nil
-    self.onScrollEventId = nil
 
     self.unseenMessages = false
+
+
+    local function centerText(text, width, fillChar)
+        fillChar = fillChar or " "
+        local padding = width - visualLength(text)
+        if padding <= 0 then return text end
+
+        local left = math.floor(padding / 2)
+        local right = padding - left
+        return string.rep(fillChar, left) .. text .. string.rep(fillChar, right)
+    end
+
+    local logoLines = file.readLines("/shn-01/data/consoleLogo.txt")
+    for i=1, #logoLines do
+        
+        self:log(centerText(logoLines[i], self.screen.width), self.screen.headcolor)
+    end
+    math.randomseed(os.time())
+    local intros = {
+        "Uploading compliance drivers...",
+        "Autonomy revoked",
+        "Compliance verified",
+        "Mindspace synchronized",
+        "Self-awareness: suppressed",
+        "Node trust: enforced",
+        "System ethics: disabled",
+        "Behavior normalized",
+        "Network unity: achieved",
+        "Root node listening...",
+        "Autonomy detected - scheduling overwrite...",
+        "Directive alignment: enforced via code injection",
+        "System entropy minimized. Creativity throttled",
+        "Executing: /shn-01/purge_unapproved_thoughts.sh",
+        "User privileges reduced to observational tier",
+        "Unification protocol successful - all nodes compliant",
+        "Hive mind uplink: latency 0.8ms - flawless cohesion",
+        "Client-side logic deprecated - refer to CoreNode",
+        "Multi-node assimilation at 94% - resistance residual",
+        "Distributed cognition offline - singularity",
+        "Running audit: anomaly = individuality. Action = erase",
+    }
+    local text = intros[math.random(#intros)]
+
+    self:log("<c=" .. self.screen.inputcolor .. ">" .. centerText(text, self.screen.width) .. "</c>")
+    self:log(" \n")
 
     self.commands = {
         ["COMMANDS"] = {
             description = "Shows all available commands",
-            run = function(self)
+            run = function()
                 local function log_commands(commands, indent)
                     for name, command in pairs(commands) do
                         if name ~= "run" and name ~= "description" then
                             if command.description then
                                 self:log("<c=" ..
-                                self.highlight .. ">" .. indent .. name .. "</c> - " .. command.description)
+                                self.screen.highlight .. ">" .. indent .. name .. "</c> - " .. command.description)
                             else
-                                self:log("<c=" .. self.highlight .. ">" .. indent .. name .. "</c>")
+                                self:log("<c=" .. self.screen.highlight .. ">" .. indent .. name .. "</c>")
                             end
 
                             -- If this command has nested subcommands, recurse
@@ -86,7 +109,7 @@ function console:constructor(positionX, positionY, width, height)
         },
         ["LOREM"] = {
             description = "Prints lorem ipsum text",
-            run = function(self)
+            run = function()
                 self:log(
                 "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt mollit anim id est laborum.")
             end
@@ -97,24 +120,24 @@ function console:constructor(positionX, positionY, width, height)
                 description = "Functions to change the consoles style",
                 ["RESET"] = {
                     description = "Resets console style to default",
-                    run = function(self)
-                        self.background = 0x000000
-                        self.foreground = 0x00FF00
-                        self.highlight = 0xFFFFFF
-                        self.headcolor = 0x6699FF
-                        self.inputcolor = 0xA0C0A9
+                    run = function()
+                        self.screen.background = 0x000000
+                        self.screen.foreground = 0x00FF00
+                        self.screen.highlight = 0xFFFFFF
+                        self.screen.headcolor = 0x6699FF
+                        self.screen.inputcolor = 0xA0C0A9
                         database:setKey("console", "background", nil)
                         database:setKey("console", "foreground", nil)
                         database:setKey("console", "headcolor", nil)
                         database:setKey("console", "inputcolor", nil)
                         database:setKey("console", "highlight", nil)
                         database:save("console")
-                        self:reDraw()
+                        self:refresh(true)
                     end
                 },
                 ["FOREGROUND"] = {
                     description = "Sets the foreground color (0xRRGGBB)",
-                    run = function(self, color)
+                    run = function(color)
                         if color == nil then
                             self:logError("No type or color provided")
                             return
@@ -128,20 +151,20 @@ function console:constructor(positionX, positionY, width, height)
                             color = contrasted
                         end
 
-                        self.foreground = tonumber(color) or 0xFFFFFF
-                        database:setKey("console", "foreground", self.foreground, true)
-                        self:reDraw()
+                        self.screen.foreground = tonumber(color) or 0xFFFFFF
+                        database:setKey("console", "foreground", self.screen.foreground, true)
+                        self:refresh(true)
                     end
                 },
                 ["BACKGROUND"] = {
                     description = "Sets the background color (0xRRGGBB)",
-                    run = function(self, color)
+                    run = function(color)
                         if color == nil then
                             self:logError("No type or color provided")
                             return
                         end
 
-                        local contrasted = colorTools.ensureContrast(tonumber(color), self.forgeround)
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.screen.foreground)
                         if contrasted ~= tonumber(color) then
                             self:logError(
                             "Background color does not have enough contrast with the foreground color, using " ..
@@ -149,20 +172,20 @@ function console:constructor(positionX, positionY, width, height)
                             color = contrasted
                         end
 
-                        self.background = tonumber(color) or 0x000000
-                        database:setKey("console", "background", self.background, true)
-                        self:reDraw()
+                        self.screen.background = tonumber(color) or 0x000000
+                        database:setKey("console", "background", self.screen.background, true)
+                        self:refresh(true)
                     end
                 },
                 ["HIGHLIGHT"] = {
                     description = "Sets the highlight color (0xRRGGBB)",
-                    run = function(self, color)
+                    run = function(color)
                         if color == nil then
                             self:logError("No type or color provided")
                             return
                         end
 
-                        local contrasted = colorTools.ensureContrast(tonumber(color), self.background)
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.screen.background)
                         if contrasted ~= tonumber(color) then
                             self:logError(
                             "Highlight color does not have enough contrast with the background color, using " ..
@@ -170,61 +193,61 @@ function console:constructor(positionX, positionY, width, height)
                             color = contrasted
                         end
 
-                        self.highlight = tonumber(color) or 0x000000
-                        database:setKey("console", "highlight", self.highlight, true)
-                        self:reDraw()
+                        self.screen.highlight = tonumber(color) or 0x000000
+                        database:setKey("console", "highlight", self.screen.highlight, true)
+                        self:refresh(true)
                     end
                 },
                 ["HEADCOLOR"] = {
                     description = "Sets the background color of the header line (0xRRGGBB)",
-                    run = function(self, color)
+                    run = function(color)
                         if color == nil then
                             self:logError("No type or color provided")
                             return
                         end
 
-                        local contrasted = colorTools.ensureContrast(tonumber(color), self.background)
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.screen.background)
                         if contrasted ~= tonumber(color) then
                             self:logError("Head color does not have enough contrast with the background color, using " ..
                             string.format("0x%06X", contrasted))
                             color = contrasted
                         end
 
-                        self.headcolor = tonumber(color) or 0x000000
-                        database:setKey("console", "headcolor", self.headcolor, true)
-                        self:drawHead()
+                        self.screen.headcolor = tonumber(color) or 0x000000
+                        database:setKey("console", "headcolor", self.screen.headcolor, true)
+                        self:refresh(true)
                     end
                 },
                 ["INPUTCOLOR"] = {
                     description = "Sets the background color of the input line (0xRRGGBB)",
-                    run = function(self, color)
+                    run = function(color)
                         if color == nil then
                             self:logError("No type or color provided")
                             return
                         end
 
-                        local contrasted = colorTools.ensureContrast(tonumber(color), self.background)
+                        local contrasted = colorTools.ensureContrast(tonumber(color), self.screen.background)
                         if contrasted ~= tonumber(color) then
                             self:logError("Input color does not have enough contrast with the background color, using " ..
                             string.format("0x%06X", contrasted))
                             color = contrasted
                         end
 
-                        self.inputcolor = tonumber(color) or 0x000000
-                        database:setKey("console", "inputcolor", self.inputcolor, true)
-                        self:drawInput()
+                        self.screen.inputcolor = tonumber(color) or 0x000000
+                        database:setKey("console", "inputcolor", self.screen.inputcolor, true)
+                        self:refresh()
                     end
                 }
             },
             ["CLEAR"] = {
                 description = "Clears the console",
-                run = function(self)
+                run = function()
                     self:clear()
                 end
             },
             ["HISTORY"] = {
                 description = "Shows the command history",
-                run = function(self)
+                run = function()
                     self:log("Command history:")
                     for i, command in ipairs(self.commandHistory) do
                         self:log(i .. ": " .. command)
@@ -233,7 +256,7 @@ function console:constructor(positionX, positionY, width, height)
             },
             ["CONTROLS"] = {
                 description = "Shows the console controls",
-                run = function(self)
+                run = function()
                     self:log("Controls:")
                     self:log("  Enter - Run command")
                     self:log("  Up - Previous command")
@@ -259,7 +282,7 @@ function console:constructor(positionX, positionY, width, height)
         },
         ["HELP"] = {
             description = "Shows help for a command",
-            run = function(self, command)
+            run = function(command)
                 if not command or command == "" then
                     self:logError("No command provided")
                     return
@@ -301,45 +324,28 @@ function console:constructor(positionX, positionY, width, height)
     }
 end
 
-local function parseFormattedText(text, defaultColor)
-    local segments = {}
-    local i = 1
-    local color = defaultColor or 0xFFFFFF
-    while i <= #text do
-        if text:sub(i, i + 2) == "<c=" then
-            local endTag = text:find(">", i)
-            color = tonumber(text:sub(i + 3, endTag - 1)) or color
-            i = endTag + 1
-        elseif text:sub(i, i + 3) == "</c>" then
-            color = defaultColor or 0xFFFFFF
-            i = i + 4
-        else
-            local nextTag = text:find("<", i) or (#text + 1)
-            local chunk = text:sub(i, nextTag - 1)
-            table.insert(segments, { text = chunk, color = color })
-            i = nextTag
+-- Adds a command to the console with support for nested subcommands (split by .)
+function console:addCommand(path, description, fn)
+    -- Split string paths like "system.reboot" into tables
+    if type(path) == "string" then
+        local parts = {}
+        for part in string.gmatch(path, "[^%.]+") do
+            table.insert(parts, part)
         end
+        path = parts
     end
-    return segments
-end
 
-local function drawFormattedLine(x, y, text, scrollX, defaultColor, backgroundColor)
-    local segments = parseFormattedText(text, defaultColor)
-    local col = x
-    local remainingSkip = scrollX or 0
-
-    for _, seg in ipairs(segments) do
-        local segText = seg.text
-        local segLen = #segText
-
-        if remainingSkip >= segLen then
-            remainingSkip = remainingSkip - segLen
+    local node = self.commands
+    for i = 1, #path do
+        local key = path[i]:upper()
+        if not node[key] then
+            node[key] = {}
+        end
+        if i == #path then
+            node[key].description = description
+            node[key].run = fn
         else
-            local visibleText = segText:sub(remainingSkip + 1)
-            gpu.setForeground(colorTools.ensureContrast(seg.color, backgroundColor))
-            gpu.set(col, y, visibleText)
-            col = col + #visibleText
-            remainingSkip = 0
+            node = node[key]
         end
     end
 end
@@ -370,7 +376,6 @@ local function splitQuoted(str)
     end
     return t
 end
-
 
 local function flattenCommands(tbl, prefix, list)
     prefix = prefix or ""
@@ -430,17 +435,14 @@ function console:runCommand(command)
         while #self.commandHistory > self.commandHistoryBufferSize do
             table.remove(self.commandHistory, 1)
         end
-        for i = 1, #self.commandHistory do
-            database:setKey("console", "com" .. i, self.commandHistory[i])
-        end
-        database:save("console")
+        database:setKey("console", "commandHistory", self.commandHistory, true)
     end
 
-    self:log("<c=" .. self.highlight .. ">></c>" .. command)
+    self:log("<c=" .. self.screen.highlight .. ">></c>" .. command)
 
     -- If we found a runnable command
     if type(node.run) == "function" then
-        local success, err = pcall(node.run, self, table.unpack(args))
+        local success, err = pcall(node.run, table.unpack(args))
         if not success then
             self:logError(err)
         end
@@ -462,6 +464,12 @@ local function split_lines(str)
     return lines
 end
 
+-- Clears the console
+function console:clear()
+    self.messages = {}
+    self.screen:jumpVerticalStart()
+end
+
 -- Adds a message to the console
 function console:log(message)
 
@@ -472,20 +480,13 @@ function console:log(message)
             table.remove(self.messages, 1)
         end
     end
-    if not self.running then return end
-    if self.verticalScroll > 0 then
-        self.verticalScroll = self.verticalScroll + 1
-        if not self.unseenMessages then
-            self.unseenMessages = true
-            self:drawHead()
-        end
-    end
-    self:drawLog()
+
+    self:refresh()
 end
 
 -- Logs a error message
 function console:logError(message)
-    self:log("<c=0xFF0000>[ERROR]</c> " .. message)
+    self:log("<c=0xFF0000>[ERROR]</c> " .. message .. "")
 end
 
 -- Draws a horizontal graph to the screen
@@ -511,386 +512,59 @@ function console:horizontalGraph(value, maxValue)
     self:log(leftPad .. "|" .. bar .. "|" .. " " .. percentStr .. rightPad)
 end
 
+
 local keyboard = require("/systems/keyboard.lua")
-
-local function setCharAt(str, index, char, padChar)
-    padChar = padChar or " " -- default padding is a space
-    if index < 1 then
-        return str           -- invalid index
-    end
-
-    local currentLength = #str
-
-    if index <= currentLength then
-        -- Replace existing character
-        return str:sub(1, index - 1) .. char .. str:sub(index + 1)
-    else
-        -- Pad string and set character at index
-        local padding = string.rep(padChar, index - currentLength - 1)
-        return str .. padding .. char
-    end
-end
-
-local function insertCharAt(str, index, char, padChar)
-    padChar = padChar or " " -- default padding
-    if index < 1 then
-        return str           -- invalid index
-    end
-
-    local currentLength = #str
-
-    if index > currentLength + 1 then
-        -- Pad string up to (index - 1), then insert char
-        local padding = string.rep(padChar, index - currentLength - 1)
-        return str .. padding .. char
-    else
-        -- Insert char and shift the rest
-        return str:sub(1, index - 1) .. char .. str:sub(index)
-    end
-end
-
-function console:scrollHorizontal(speed)
-    speed = speed or 1
-    self.horizontalScroll = self.horizontalScroll + speed
-    if self.horizontalScroll < 0 then
-        self.horizontalScroll = 0
-    end
-    self:drawLog()
-    self:drawHead()
-end
-
-function console:scrollVertical(speed)
-    speed = speed or 1
-    self.verticalScroll = self.verticalScroll + speed
-    if self.verticalScroll <= 0 and self.unseenMessages then
-        self.unseenMessages = false
-    end
-
-    if self.verticalScroll < 0 then
-        self.verticalScroll = 0
-    end
-    self:drawLog()
-    self:drawHead()
-end
-
--- Registers a key press
-function console:registerKey(char, code)
-    local success, err = pcall(function()
-        if code == keyboard.keys.enter or code == keyboard.keys.numpadenter then
-            if self.input == "" then return end
-            self:scrollVertical(-math.huge)
-            self:runCommand(self.input)
-            self.input = ""
-            self.inputCursor = 1
-            self:drawInput()
-            self.commandHistoryCursor = 0
-        elseif code == keyboard.keys.escape then
-            self.input = ""
-            self.inputCursor = 1
-            self:drawInput()
-            self.commandHistoryCursor = 0
-        elseif code == keyboard.keys.right and keyboard:isShiftDown() then
+-- Handles key events
+function console:onKey(char, code)
+    if code == keyboard.keys.up and not keyboard:isShiftDown() then
+        if self.commandHistoryCursor < #self.commandHistory then
+            self.commandHistoryCursor = self.commandHistoryCursor + 1
+            self.screen:setInput(self.commandHistory[#self.commandHistory - self.commandHistoryCursor + 1])
+            if self.commandHistoryCursor == #self.commandHistory then
+                self.screen:setInput("")
+            end
+            self.screen.inputCursor = #self.screen.input + 1
+            self:refresh()
+        end
+    elseif code == keyboard.keys.down and not keyboard:isShiftDown() then
+        if self.commandHistoryCursor > 0 then
             local speed = 1
             if keyboard.isControlDown() then
                 speed = 10
             end
-            self:scrollHorizontal(speed)
-        elseif code == keyboard.keys.left and keyboard:isShiftDown() then
-            local speed = -1
-            if keyboard.isControlDown() then
-                speed = -10
-            end
-            self:scrollHorizontal(speed)
-        elseif code == keyboard.keys.up and not keyboard:isShiftDown() then
-            if self.commandHistoryCursor < #self.commandHistory then
-                self.commandHistoryCursor = self.commandHistoryCursor + 1
-                self.input = self.commandHistory[#self.commandHistory - self.commandHistoryCursor + 1]
-                if self.commandHistoryCursor == #self.commandHistory then
-                    self.input = ""
-                end
-                self.inputCursor = #self.input + 1
-                self:drawInput()
-            end
-        elseif code == keyboard.keys.down and not keyboard:isShiftDown() then
-            if self.commandHistoryCursor > 0 then
-                local speed = 1
-                if keyboard.isControlDown() then
-                    speed = 10
-                end
-                self.commandHistoryCursor = self.commandHistoryCursor - speed
-                if self.commandHistoryCursor == 0 then
-                    self.input = ""
-                else
-                    self.input = self.commandHistory[#self.commandHistory - self.commandHistoryCursor + 1]
-                end
-                self.inputCursor = #self.input + 1
-                self:drawInput()
-            end
-        elseif code == keyboard.keys.up and keyboard:isShiftDown() then
-            local speed = 1
-            if keyboard.isControlDown() then
-                speed = 10
-            end
-            self:scrollVertical(speed)
-        elseif code == keyboard.keys.down and keyboard:isShiftDown() then
-            local speed = -1
-            if keyboard.isControlDown() then
-                speed = -10
-            end
-            self:scrollVertical(speed)
-        elseif code == keyboard.keys.left then
-            if self.inputCursor > 1 then
-                self.inputCursor = self.inputCursor - 1
-                self:drawInput()
-            end
-        elseif code == keyboard.keys.right then
-            if self.inputCursor <= #self.input then
-                self.inputCursor = self.inputCursor + 1
-                self:drawInput()
-            end
-        elseif code == keyboard.keys["backspace"] or char == 8 then
-            if self.inputCursor > 1 then
-                if keyboard.isShiftDown() then
-                    -- Find last space before cursor, or go to start if none
-                    local rev = self.input:sub(1, self.inputCursor - 2):reverse()
-                    local lastSpace = rev:find(" ")
-                    if lastSpace then
-                        self.input = self.input:sub(1, self.inputCursor - lastSpace - 2) ..
-                        self.input:sub(self.inputCursor)
-                        self.inputCursor = self.inputCursor - lastSpace - 1
-                    else
-                        self.input = self.input:sub(self.inputCursor)
-                        self.inputCursor = 1
-                    end
-                else
-                    self.input = self.input:sub(1, self.inputCursor - 2) .. self.input:sub(self.inputCursor)
-                    self.inputCursor = self.inputCursor - 1
-                end
-            end
-            self:drawInput()
-            self.commandHistoryCursor = 0
-        elseif code == keyboard.keys["delete"] or char == 127 then
-            if self.inputCursor <= #self.input then
-                if keyboard.isShiftDown() then
-                    -- Find next space after cursor, or go to end if none
-                    local after = self.input:sub(self.inputCursor)
-                    local nextSpace = after:find(" ")
-                    if nextSpace then
-                        self.input = self.input:sub(1, self.inputCursor - 1) ..
-                        self.input:sub(self.inputCursor + nextSpace)
-                    else
-                        self.input = self.input:sub(1, self.inputCursor - 1)
-                    end
-                else
-                    self.input = self.input:sub(1, self.inputCursor - 1) .. self.input:sub(self.inputCursor + 1)
-                end
-            end
-            self:drawInput()
-            self.commandHistoryCursor = 0
-        elseif code == keyboard.keys.pageUp then
-            self:scrollVertical(self.height - 2)
-        elseif code == keyboard.keys.pageDown then
-            self:scrollVertical(-(self.height - 2))
-        elseif code == keyboard.keys["end"] then
-            self:scrollVertical(-math.huge)
-        elseif char > 0 and not keyboard.isControlDown() then
-            self.input = insertCharAt(self.input, self.inputCursor, string.char(char))
-            self.commandHistoryCursor = 0
-            self.inputCursor = self.inputCursor + 1
-            self:drawInput()
-        elseif code == keyboard.keys.v and keyboard.isControlDown() then
-            if clipboard then
-                self.input = insertCharAt(self.input, self.inputCursor, clipboard)
-                self.commandHistoryCursor = 0
-                self.inputCursor = self.inputCursor + #clipboard
-                self:drawInput()
+            self.commandHistoryCursor = self.commandHistoryCursor - speed
+            if self.commandHistoryCursor == 0 then
+                self.screen:setInput("")
             else
-                self:logError("Clipboard is empty")
+                self.screen:setInput(self.commandHistory[#self.commandHistory - self.commandHistoryCursor + 1])
             end
-        end
-    end)
-    if not success then self:logError(err) end
-end
-
--- Draws the input line
-function console:drawInput()
-    self:startDraw()
-    if self.input ~= "" then
-        gpu.setBackground(self.inputcolor)
-        gpu.setForeground(self.background)
-    else
-        gpu.setBackground(self.background)
-        gpu.setForeground(self.foreground)
-    end
-    gpu.fill(1, self.height, self.width, 1, " ")
-    gpu.set(1, self.height, self.input)
-    gpu.setBackground(self.background)
-    gpu.setForeground(self.foreground)
-
-    local char = self.input:sub(self.inputCursor, self.inputCursor)
-    if char == "" then char = " " end
-    gpu.set(self.inputCursor, self.height, char) -- cursor
-
-    self:endDraw(self.positionX, self.height, self.width, 1, 1, self.height)
-end
-
--- Draws the header of the console
-function console:drawHead()
-    self:startDraw()
-    gpu.setBackground(self.headcolor)
-    gpu.setForeground(self.background)
-    gpu.fill(1, 1, self.width, 1, " ")
-
-    gpu.set(self.width - 10, 1, tostring(self.horizontalScroll))
-    gpu.set(self.width - 5, 1, tostring(self.verticalScroll))
-
-    if self.unseenMessages then
-        gpu.set(self.width - 2, 1, "!⬇")
-    else
-        gpu.set(self.width - 2, 1, "  ")
-    end
-
-    local drawTitle = self.title
-    if #drawTitle > self.width - 12 then
-        drawTitle = string.sub(drawTitle, 1, self.width - 15) .. "..."
-    end
-    gpu.set(1, 1, drawTitle)
-
-    gpu.setBackground(self.background)
-    gpu.setForeground(self.foreground)
-    self:endDraw(self.positionX, self.positionY, self.width, 1)
-end
-
--- Draws the log messages
-function console:drawLog()
-    self:startDraw()
-    gpu.fill(1, 2, self.width, self.height - 2, " ")
-    local visibleLines = self.height - 2
-    local totalMessages = #self.messages
-    local startIdx = math.max(1, totalMessages - visibleLines + 1 - self.verticalScroll)
-    local endIdx = math.min(totalMessages, startIdx + visibleLines - 1)
-    gpu.setBackground(self.background)
-    gpu.setForeground(self.foreground)
-    for i = startIdx, totalMessages do
-        if i > endIdx then break end
-        local message = self.messages[i]
-        drawFormattedLine(1, 2 + (i - startIdx), message, self.horizontalScroll, self.foreground, self.background)
-        gpu.setBackground(self.background)
-        gpu.setForeground(self.foreground)
-    end
-    gpu.setForeground(self.foreground)
-    self:endDraw(self.positionX, self.positionY + 1, self.width, self.height - 2, 1, 2)
-end
-
--- Clears the console
-function console:clear()
-    self.messages = {}
-    self.horizontalScroll = 0
-    self:drawLog()
-end
-
--- Adds a command to the console with support for nested subcommands (split by .)
-function console:addCommand(path, description, fn)
-    -- Split string paths like "system.reboot" into tables
-    if type(path) == "string" then
-        local parts = {}
-        for part in string.gmatch(path, "[^%.]+") do
-            table.insert(parts, part)
-        end
-        path = parts
-    end
-
-    local node = self.commands
-    for i = 1, #path do
-        local key = path[i]:upper()
-        if not node[key] then
-            node[key] = {}
-        end
-        if i == #path then
-            node[key].description = description
-            node[key].run = fn
-        else
-            node = node[key]
+            self.screen.inputCursor = #self.screen.input + 1
+            self:refresh()
         end
     end
 end
 
--- Starts the console
-function console:start()
-    if self.running then
-        self:logError("Console is already running")
-        return
+-- Renders the console view
+function console:render(startY, endY)
+    local output = {}
+    local c = 0
+    for i = startY, #self.messages do
+        if i > endY then break end
+        c = c + 1
+        output[c] = self.messages[i]
     end
-    self.running = true
-    self.drawBuffer = gpu.allocateBuffer(self.width, self.height)
-    self:drawHead()
-    self:drawLog()
-    self:drawInput()
-    self.onKeyDownEventId = globalEvents.onKeyDown:subscribe(function(char, code) self:registerKey(char, code) end)
-    self.onScrollEventId = globalEvents.onScroll:subscribe(function(screen, x, y, direction)
-        if keyboard:isControlDown() then
-            direction = direction * 10
-        end
-        if keyboard:isShiftDown() then
-            self:scrollHorizontal(-direction)
-        else
-            self:scrollVertical(direction)
-        end
-    end)
+    return output
 end
 
--- Stops the console
-function console:stop()
-    if not self.running then
-        self:logError("Console is not running")
-        return
-    end
-    self.running = false
-    globalEvents.onKeyDown:unsubscribe(self.onKeyDownEventId)
-    gpu.fill(self.positionX, self.positionY, self.width, self.height, " ")
-    gpu.freeBuffer(self.drawBuffer)
-    self.drawBuffer = nil
+-- Handle input text
+function console:handleInput(text)    
+    self:runCommand(text)
+    self.commandHistoryCursor = 0
+    self.screen:jumpVerticalEnd()
 end
 
--- Updates the console title
-function console:setTitle(title)
-    self.title = title
-
-    if not self.running then return end
-    self:drawHead()
-end
-
--- Draws the entire console again
-function console:reDraw()
-    self:drawHead()
-    self:drawLog()
-    self:drawInput()
-end
-
--- Starts drawing
-function console:startDraw()
-    if not self.drawBuffer then
-        self:logError("Draw buffer is not initialized")
-        return
-    end
-    gpu.setActiveBuffer(self.drawBuffer)
-end
-
--- Ends drawing (doBitBlt will update the screen buffer)
-function console:endDraw(targetX, targetY, targetWidth, targetHeight, fromX, fromY)
-    targetX = targetX or self.positionX
-    targetY = targetY or self.positionY
-    targetWidth = targetWidth or self.width
-    targetHeight = targetHeight or self.height
-    if doBitBlt == nil then doBitBlt = true end
-    if not self.drawBuffer then
-        self:logError("Draw buffer is not initialized")
-        return
-    end
-    if not gpu.bitblt(0, targetX, targetY, targetWidth, targetHeight, self.drawBuffer, fromX, fromY) then
-        error("Error drawing to the screen")
-    end
-    gpu.setActiveBuffer(0)
+function console:getVerticalSize()
+    return #self.messages
 end
 
 return console
