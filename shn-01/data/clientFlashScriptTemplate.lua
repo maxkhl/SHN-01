@@ -2,9 +2,17 @@
 -- It is minified and compressed before being flashed to an EEPROM
 
 -- This identifies the hive that flashed this node
-local hiveId = "<--HIVEID-->"
+local hive = { id = "SHN-NEXUS-CEB7", address = nil }
 -- This identifies the node to the hive
-local nodeId = "<--NODEID-->"
+local node = { id = "SHN-NEXUS-CEB7-SOLAR", address = nil }
+-- The port to use for broadcasting
+local broadcastPort = 2011
+-- The port to use for bounced messages
+local bouncePort = 2022
+-- Update frequency in seconds
+local uFreq = 1.0
+-- Bootstrap mode flag. Indicates if the node is in initial setup phase
+local bootstrap = true
 
 -- Global function to load components without any hassle
 function getComp(name)
@@ -45,10 +53,13 @@ function beepSeq(sequence)
 end
 
 -- Keep beeping until someone adds a modem
+mdm, node.address = getComp("modem")
 while mdm == nil do
   beepSeq(bSeq.critical)
-  mdm = getComp("modem")
+  mdm, node.address = getComp("modem")
 end
+
+if not mdm.isOpen(broadcastPort) then mdm.open(broadcastPort) end
 
 -- Runs the given code in the provided environment
 function run(code, environment)
@@ -62,20 +73,67 @@ function run(code, environment)
     end
 end
 
-function findHive()
+function callHive()
   -- Try to find the hive by broadcasting a handshake
-  mdm.broadcast(prot.port, "handshake", nodeId, hiveId)
+  mdm.broadcast(broadcastPort, "handshake", node.id, hive.id)
+end
+
+-- Handles critical errors by beeping and sending an error message to the hive
+function error(msg)
+  -- Beep critical error sequence
+  beepSeq(bSeq.crit)
+  -- Send error message to hive
+  send(bouncePort, "ERROR", tostring(msg))
+end
+
+-- Sends debug info to the hive
+function debug(msg)
+  -- Send debug info to hive
+  send(bouncePort, "INFO", tostring(msg))
 end
 
 -- Sends a message to the hive
-function b.Send(port, comm, ...)
-  if b.serverAdr then
-    if not mdm.send(b.serverAdr, prot.port, comm, d0, d1, d2, d3) then
-      b.Error("Send:" .. comm .. d0)
+function send(port, comm, ...)
+  if hive.address then
+    if not mdm.send(hive.address, port, comm, d0, d1, d2, d3) then
+      error("Send:" .. comm .. d0)
     end
   end
 end
 
 function handShake()
     -- Placeholder for handshake logic
+end
+
+-- Sleeps until the time is over and collects all signals during this time
+local function sleep(sec)
+  local evts, deadline = {}, computer.uptime() + (sec or 0)
+  repeat
+    local left = deadline - computer.uptime()
+    if left <= 0 then break end
+    local e = {computer.pullSignal(left)}
+    if e[1] then evts[#evts+1] = e end
+  until computer.uptime() >= deadline
+  return evts
+end
+
+-- The main update loop
+while true do
+  -- Placeholder for main loop logic  
+  if not b.serverAdr then mdm.broadcast(b.prot.net.port, b.com.H, b.name) end
+  for _, e in ipairs(sleep(uFreq)) do
+    local signal, locAddr, remAddr, port, dist, command, d0, d1, d2, d3 = table.unpack(e)
+    if signal == "modem_message" and remAddr ~= node.address then
+      if bootstrap then
+        if command == "handshake_ack" and d0 == node.id and d1 == hive.id then
+          hive.address = remAddr
+          bootstrap = false
+          beepSeq(bSeq.conn)
+        end
+      else
+        -- Handle other messages when not in bootstrap mode
+      end
+
+    end
+  end
 end

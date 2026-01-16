@@ -3,17 +3,9 @@
         This class represents the NANO file editor in the SHN-01 system.
         It handles rendering and updating the editor on the screen.
 ]]
-local nano = newClass(class("view"))
+local nano = newClass(class("/shn-01/view"))
 local database = require("/systems/database")
 
-console:addCommand("NANO", "File editor\nParameters:\n1 File path to open", function(filePath)
-    if not filePath then
-        error("Please provide a file path to open.")
-        return
-    end
-
-    local editor = nano(filePath)
-end)
 
 
 function nano:constructor(filePath)
@@ -21,19 +13,25 @@ function nano:constructor(filePath)
 
     self.filePath = filePath
     self.fileContent = file.readLines(filePath)
-    if not fileContent then
+    self.error = false
+    if not self.fileContent then
         error("NANO File not found: " .. filePath)
+        self.error = true
         return
     end
+
 
     self.base:constructor(screen)
 end
 
 
 -- Renders the file editor
-function console:render(startY, endY)
+function nano:render(startY, endY)
     local output = {}
     local c = 0
+    if self.fileContent == nil then
+        return {"Error: File content is nil.", self.filePath}
+    end
     for i = startY, #self.fileContent do
         if i > endY then break end
         c = c + 1
@@ -44,13 +42,10 @@ end
 
 local keyboard = require("/systems/keyboard.lua")
 -- Handles key events
-function console:onKey(char, code)
-    if code == keyboard.keys.c and not keyboard:isControlDown() then
-        screen:setView(console)
-    end
+function nano:onKey(char, code)
 end
 
-function console:getVerticalSize()
+function nano:getVerticalSize()
     return #self.fileContent
 end
 

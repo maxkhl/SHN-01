@@ -28,6 +28,7 @@ function screen:constructor()
     self.verticalScrollEnd = true
 
     self.view = nil
+    self.mainview = nil
 
     self.background = 0x000000
     self.foreground = 0x00FF00
@@ -172,13 +173,19 @@ function screen:setInput(value)
     self:drawInput()
 end
 
+function screen:exit()
+    if self.view ~= self.mainview then
+        self:setView(self.mainview)
+        self:jumpVerticalEnd()
+    end
+end
+
 -- Registers a key press
 function screen:registerKey(char, code)
     local success, err = pcall(function()
         if code == keyboard.keys.enter or code == keyboard.keys.numpadenter then
             if self.input == "" then return end
-            --self:scrollVertical(-math.huge)
-            
+
             local value = self.view:handleInput(self.input)
             if value then
                 self.input = value
@@ -279,7 +286,13 @@ function screen:registerKey(char, code)
                 self.inputCursor = self.inputCursor + #clipboard
                 self:drawInput()
             else
-                error("Clipboard is empty")
+                print("<c=0xFF0000>Clipboard is empty</c>")
+            end
+        elseif code == keyboard.keys.x and keyboard.isControlDown() then
+            if self.view ~= self.mainview then
+                self:exit()
+            else
+                print("<c=0xFF0000>No view to exit from</c>")
             end
         else
             if self.view and self.view.onKey then
@@ -363,6 +376,16 @@ function screen:drawView()
         gpu.setForeground(self.foreground)
     end]]
     if self.view then
+        local currentSize = self.view:getVerticalSize()
+        
+        -- Auto-follow: if scrolled to end, update scroll to new end
+        if self.verticalScrollEnd and currentSize > 0 then
+            self.verticalScroll = math.max(0, currentSize - self.height + 2)
+        end
+        
+        -- Update verticalScrollEnd status
+        self.verticalScrollEnd = self.verticalScroll >= currentSize - self.height + 2
+        
         local visibleLines = self.height - 2
         local startIdx = math.max(1, 1 + self.verticalScroll)
         local endIdx = startIdx + visibleLines - 1

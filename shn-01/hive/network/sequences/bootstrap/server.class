@@ -3,8 +3,7 @@ local bootstrap = newClass(class("../../sequence"))
 function bootstrap:constructor(content)
     assert(self, "Must be called on a object")
     self.base:constructor("bootstrap",
-        function(message)
-            
+        function(message)            
             return client
         end)
 end

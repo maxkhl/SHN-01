@@ -19,8 +19,6 @@ function protocol:constructor(server, name, port, description, sequences)
     self.description = description
     self.port = port
 
-    self.sessions = {}
-
     -- Contains all sequences this protocol supports indexed by name
     self.sequences = {}
     for _, seq in ipairs(sequences) do
@@ -44,30 +42,32 @@ function protocol:start()
     globalEvents.onNetMessageReceived:subscribe(function(receiver, sender, port, distance, ...)
         if port == self.port then
             local message = self:createMessage(sender, self, distance, ...)
+            local args = {...}
             
-            if self.sequences[(...)[1]] then -- message is a new sequence request
-                local sequenceID = (...)[1]
-                local sessionID = self:startSession(sequenceID, ...)
-                if sessionID then
-                    print("Started new session with ID " .. sessionID .. " for sequence " .. sequenceID)
-                else
-                    print("Failed to start session for sequence " .. sequenceID)
-                end
-            elseif self.sessions[(...)[1]] then -- message is a session request
-                local sessionID = (...)[1]
-                if not self.sessions[sessionID] then
-                    error("No session with ID " .. sessionID .. " found in protocol " .. self.name)
-                end
-
-                -- Process the message in the session
-                local status, result = self.sessions[sessionID]:process(message)
-                if status == class("sequence").sequenceStatus.finished then
-                    local sequence = self.sessions[sessionID]
-                    self.sessions[sessionID] = nil
-                    self:onSequenceFinished(sequence, result, sessionID)
-                end
+            -- First arg is either a sequence name (new session) or session ID (existing session)
+            local identifier = args[1]
+            
+            if self.sequences[identifier] then
+                -- This is a new sequence request - create a session
+                local sequence = self.sequences[identifier]
+                local sessionID = sequence:createSession(message)
+                print("Started new session " .. sessionID .. " for sequence " .. identifier)
             else
-                error("Unknown message type or sequence ID in protocol " .. self.name)
+                -- This should be a session ID - find which sequence owns it
+                local foundSequence = nil
+                for _, seq in pairs(self.sequences) do
+                    if seq:findSession(identifier) then
+                        foundSequence = seq
+                        break
+                    end
+                end
+                
+                if foundSequence then
+                    -- Process the message in the existing session
+                    foundSequence:process(identifier, message)
+                else
+                    error("Unknown message identifier '" .. tostring(identifier) .. "' in protocol " .. self.name)
+                end
             end
 
             if self.handleMessage then
@@ -83,44 +83,9 @@ function protocol:start()
     end
 end
 
-function protocol:startSession(sequenceID, ...)
-    assert(self, "Must be called on a object")
-    assert(sequenceID, "No sequence ID given")
-    if not self.sequences[sequenceID] then
-        error("No sequence with ID " .. sequenceID .. " found in protocol " .. self.name)
-    end
-
-    -- Create a new session for the sequence
-    local sessionID = crypto.sessionID() -- Generate a unique session ID
-    local sequence = self.sequences[sequenceID]
-    self.sessions[sessionID] = sequence:new(sessionID, ...)
-
-    return sessionID
-end
-
--- Processes a message for this protocol
-function protocol:process(sessionID, ...)
-    assert(self, "Must be called on a object")
-    local sequence = self.sessions[sessionID]
-    if not sequence then
-        error("No sequence with ID " .. sessionID .. " found in protocol " .. self.name)
-    end
-
-    -- Call the sequence with the given arguments
-    sequence:process(...)
-
-    if sequence.alive == false then
-        self.sessions[sessionID] = nil
-    end
-end
-
 function protocol:createMessage(remoteAddress, protocol, distance, ...)
     assert(self, "Must be called on a object")
     return class("/shn-01/network/message"):new(remoteAddress, protocol, distance, ...)
-end
-
-function protocol:onSequenceFinished(sequence, result, sessionID)
-    -- Can be overridden by subclasses to react to finished sequences
 end
 
 return protocol

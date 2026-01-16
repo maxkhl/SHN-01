@@ -6,17 +6,8 @@
 ]]
 local sequence = newClass()
 
-
-sequence.sequenceStatus = {
-    initialized = 1,
-    started = 2,
-    timedout = 3,
-    error = 4,
-    finished = 5,
-}
-
 -- Creates a new sequence object based on the manifest and mode
-function sequence:create(manifestPath, serverMode, ...)
+function sequence:create(hive, protocol, manifestPath, serverMode, ...)
     assert(manifestPath, "No manifest path given")
     
     local manifest = include(manifestPath)
@@ -37,7 +28,7 @@ function sequence:create(manifestPath, serverMode, ...)
     else
         error("Sequence manifest " .. manifest.name .. " no valid mode")
     end    
-    return sequenceClass:new(...)
+    return sequenceClass:new(hive, protocol, ...)
 end
 
 function sequence:constructor(name, func, timeout, timeoutCallback)
@@ -48,39 +39,107 @@ function sequence:constructor(name, func, timeout, timeoutCallback)
     assert(timeoutCallback == nil or type(timeoutCallback) == "function", "Invalid timeout function, expected function or nil")
 
     self.name = name
-    self.id = crypto.sessionID() -- Unique ID for the sequence
-    self.status = sequence.sequenceStatus.initialized
-    self.routine = coroutine.create(func)
-    self.startTime = os.time()
+    self.func = func
     self.timeout = timeout or 60 -- Default timeout of 60 seconds
     self.timeoutCallback = timeoutCallback
-    self.result = nil -- Result returned by the sequence when finished
-    self.alive = true
+    self.sessions = {} -- Each session has its own coroutine and state
 
+end
+
+-- Creates a new session for this sequence and processes the first message
+function sequence:createSession(firstMessage)
+    self:assert(self, "Must be called on a object")
+    
+    local newSession = {
+        id = crypto.sessionID(),
+        routine = coroutine.create(self.func),
+        startTime = os.time(),
+        result = nil
+    }
+    table.insert(self.sessions, newSession)
+    self:process(newSession.id, firstMessage)
+    return newSession.id
+end
+
+-- Finds a session by its ID
+function sequence:findSession(sessionID)
+    self:assert(self, "Must be called on a object")
+    self:assert(sessionID, "No session ID given")
+    
+    for _, session in ipairs(self.sessions) do
+        if session.id == sessionID then
+            return session
+        end
+    end
+    return nil
+end
+
+-- Removes a session by its ID
+function sequence:removeSession(sessionID)
+    self:assert(self, "Must be called on a object")
+    self:assert(sessionID, "No session ID given")
+    
+    for i, session in ipairs(self.sessions) do
+        if session.id == sessionID then
+            table.remove(self.sessions, i)
+            return true
+        end
+    end
+    return false
+end
+
+-- Gets all active sessions
+function sequence:getActiveSessions()
+    self:assert(self, "Must be called on a object")
+    
+    local active = {}
+    for _, session in ipairs(self.sessions) do
+        if coroutine.status(session.routine) ~= "dead" then
+            table.insert(active, session)
+        end
+    end
+    return active
+end
+
+-- Gets the count of sessions (total and active)
+function sequence:getSessionCount()
+    self:assert(self, "Must be called on a object")
+    
+    local total = #self.sessions
+    local active = 0
+    for _, session in ipairs(self.sessions) do
+        if coroutine.status(session.routine) ~= "dead" then
+            active = active + 1
+        end
+    end
+    return total, active
 end
 
 function sequence:__tostring()
     self:assert(self, "Must be called on a object")
-    return string.format("<c=0xFFFF00>[%s]</c> <c=0xFF00FF>%s</c>", self.name:upper(), self.id)
+    return string.format("<c=0xFFFF00>[%s]</c>", self.name:upper())
 end
 
-function sequence:checkTimeout()
+function sequence:checkTimeout(session)
     self:assert(self, "Must be called on a object")
-    if os.time() - self.startTime > self.timeout then
-        self.status = sequence.sequenceStatus.timedout
+    self:assert(session, "No session given")
+    
+    if os.time() - session.startTime > self.timeout then
         if self.timeoutCallback then
-            self.timeoutCallback(self.id)
+            self.timeoutCallback(session.id)
         end
+        self:removeSession(session.id)
         return true
     end
     return false
 end
 
--- Handles an error in the sequence
-function sequence:error(msg)
+-- Handles an error in the sequence (for a specific session if provided)
+function sequence:error(msg, session)
     assert(self, "Must be called on a object")
-    self.status = sequence.sequenceStatus.error
-    self.alive = false
+    if session then
+        self:removeSession(session.id)
+    end
     error("Sequence " .. tostring(self) .. " error: " .. tostring(msg))
 end
 
@@ -92,53 +151,67 @@ function sequence:assert(cond, msg)
     end
 end
 
--- Processes a message in the sequence
-function sequence:process(message)
+-- Processes a message for a specific session
+function sequence:process(sessionID, message)
     self:assert(self, "Must be called on a object")
-    self:assert(not self:checkTimeout(), "Sequence has timed out")
+    self:assert(sessionID, "No session ID given")
     self:assert(message, "No message given")
+    
+    -- Find the session by ID
+    local session = self:findSession(sessionID)
+    if not session then
+        self:error("Session " .. tostring(sessionID) .. " not found")
+        return
+    end
+    
+    -- Check for timeout (removes session automatically if timed out)
+    if self:checkTimeout(session) then
+        self:error("Session " .. tostring(sessionID) .. " has timed out", session)
+        return
+    end
+    
+    -- Reset the session timeout since we're processing a message
+    session.startTime = os.time()
 
-    -- Resume the sequence coroutine with the incoming message. Use pcall to catch errors.
+    -- Resume the session's coroutine with the incoming message. Use pcall to catch errors.
     -- IMPORTANT: this implementation strictly assumes the coroutine returns a single TABLE
     -- containing outbound message objects (nothing else). We enforce that here.
-    local results = {pcall(coroutine.resume, self.routine, message)}
+    local results = {pcall(coroutine.resume, session.routine, message)}
     if not results[1] then
-        self:error("Error resuming coroutine in " .. tostring(self) .. ": " .. tostring(results[2]))
+        self:error("Error resuming coroutine in session " .. tostring(sessionID) .. ": " .. tostring(results[2]), session)
+        return
     end
     if not results[2] then
-        self:error("Coroutine error in " .. tostring(self) .. ": " .. tostring(results[3]))
+        self:error("Coroutine error in session " .. tostring(sessionID) .. ": " .. tostring(results[3]), session)
+        return
     end
 
     -- Expect a single table as the coroutine return (at results[3]).
     local outbound = results[3]
     if type(outbound) ~= "table" then
-        self:error("Expected coroutine to return a table of outbound messages, got " .. tostring(outbound))
+        self:error("Expected coroutine to return a table of outbound messages, got " .. tostring(outbound), session)
+        return
     end
 
-    -- Send every outbound message returned by the coroutine. Use ipairs to iterate
+    -- Validate every outbound message returned by the coroutine. Use ipairs to iterate
     -- the table in order and skip any nil/holes automatically.
     for _, msg in ipairs(outbound) do
         if not isInstanceOf(msg, class("messages/outbound")) then
-            self:error("Expected outbound instance from sequence return, got " .. tostring(msg))
+            self:error("Expected outbound instance from sequence return, got " .. tostring(msg), session)
+            return
         end
         if type(msg.send) ~= "function" then
-            self:error("Outbound message has no send() method to deliver it")
+            self:error("Outbound message has no send() method to deliver it", session)
+            return
         end
     end
 
-    -- If coroutine finished, mark sequence finished and keep returned result for inspection.
-    if coroutine.status(self.routine) == "dead" then
-        self.status = sequence.sequenceStatus.finished
-        self.result = outbound
-        self.alive = false
-    end
-
-    -- Keep the returned table for inspection and return it to the caller.
-    self.result = outbound
-    -- If coroutine finished, mark sequence finished.
-    if coroutine.status(self.routine) == "dead" then
-        self.status = sequence.sequenceStatus.finished
-        self.alive = false
+    -- Keep the returned table for inspection in the session.
+    session.result = outbound
+    
+    -- If coroutine finished, remove the session automatically.
+    if coroutine.status(session.routine) == "dead" then
+        self:removeSession(session.id)
     end
 
     return outbound

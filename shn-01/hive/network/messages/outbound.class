@@ -5,9 +5,10 @@
 ]]
 local outbound = newClass(class("../message"))
 
-function outbound:constructor(client, protocol, distance, ...)
+function outbound:constructor(node, protocol, distance, ...)
     assert(self, "Must be called on a object")
-    self.base:constructor(client.address, protocol, distance, ...)
+    self.node = node
+    self.base:constructor(node.address, protocol, distance, ...)
 end
 
 -- Sends the outbound message over the network
@@ -15,6 +16,16 @@ function outbound:send()
     assert(self, "Must be called on a object")
     local modem = getComponent("modem")
     modem.send(self.remoteAddress, self.protocol.port, table.unpack(self.payload))
+end
+
+function outbound:__tostring()
+    assert(self, "Must be called on a object")
+    return "<c=0x00FFFF>[Message]</c> from <c=0xFFFF00>" .. tostring(self.node.id) .. "</c> via <c=0xFFFF00>" .. tostring(self.protocol.name) .. "</c> at distance <c=0xFFFF00>" .. tostring(self.distance) .. "</c> with data: <c=0xFFFFFF>" .. table.concat(self.data, ", ") .. "</c>"
+end
+
+function outbound:senderString()
+    assert(self, "Must be called on a object")
+    return "<c=0x00FFFF>[Sender]</c> <c=0xFFFF00>" .. tostring(self.node.id) .. "</c> at distance <c=0xFFFF00>" .. tostring(self.distance) .. "</c>"
 end
 
 return outbound

@@ -1,0 +1,21 @@
+local debug = newClass(class("../../sequence"))
+
+function debug:constructor(content)
+    assert(self, "Must be called on a object")
+    self.base:constructor("debug",
+        function(message)
+            if message.data[1] and type(message.data[1]) == "string" and
+                message.data[2] and type(message.data[2]) == "string" then
+                if string.upper(message.data[1]) == "ERROR" then
+                    error("<c=0xFF0000>[ERROR]</c> " .. tostring(message.data[2]))
+                elseif string.upper(message.data[1]) == "INFO" then
+                    print("<c=0x00FFFF>[INFO]</c> " .. tostring(message.data[2]))
+                end
+            else
+                error("Invalid debug message data: " .. tostring(message))
+            end
+            return client
+        end)
+end
+
+return debug

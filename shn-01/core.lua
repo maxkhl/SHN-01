@@ -25,6 +25,7 @@ end)
 -- Initialize the console and load it into the screen
 console = new("/shn-01/console", screen)
 screen:setView(console)
+screen.mainview = console -- Always return to console
 
 inject("glitch.lua")
 

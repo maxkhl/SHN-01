@@ -10,7 +10,7 @@ function node:constructor(address, nodeId)
     assert(nodeId, "No node ID given")
 
     self.address = address
-    self.nodeId = nodeId
+    self.id = nodeId
 end
 
 

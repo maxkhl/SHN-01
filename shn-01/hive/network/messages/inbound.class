@@ -1,0 +1,28 @@
+--[[
+    SHN-01 Network Inbound message Class
+        This class represents an inbound network message in the SHN-01 system.
+        It handles the creation and management of messages received over the network.
+]]
+local inbound = newClass(class("../message"))
+
+function inbound:constructor(address, node, protocol, distance, ...)
+    assert(self, "Must be called on a object")
+    if node and node.address ~= address then
+        error("Node address does not match message address")
+    end
+
+    self.node = node
+    self.base:constructor(address, protocol, distance, ...)
+end
+
+function inbound:__tostring()
+    assert(self, "Must be called on a object")
+    return "<c=0x00FFFF>[Message]</c> from <c=0xFFFF00>" .. tostring(self.node.id) .. "</c> via <c=0xFFFF00>" .. tostring(self.protocol.name) .. "</c> at distance <c=0xFFFF00>" .. tostring(self.distance) .. "</c> with data: <c=0xFFFFFF>" .. table.concat(self.data, ", ") .. "</c>"
+end
+
+function inbound:senderString()
+    assert(self, "Must be called on a object")
+    return "<c=0x00FFFF>[Sender]</c> <c=0xFFFF00>" .. tostring(self.node.id) .. "</c> at distance <c=0xFFFF00>" .. tostring(self.distance) .. "</c>"
+end
+
+return inbound

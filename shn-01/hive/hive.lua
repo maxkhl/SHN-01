@@ -3,7 +3,7 @@ server.nodes = {}
 
 local database = require("/systems/database.lua")
 
-function server:addNode(node)
+function server:connectNode(node)
     assert(node, "No node object given")
     self.nodes[node.address] = node
     print("New node registered: " .. tostring(node.address))

@@ -500,7 +500,7 @@ function console:horizontalGraph(value, maxValue)
     -- Total reserved width:
     -- 1 (left pad) + 1 (left '|') + bar + 1 (right '|') + 1 (space) + % + 1 (right pad)
     local reserved = #leftPad + 1 + 1 + 1 + #percentStr + #rightPad
-    local barArea = self.width - reserved
+    local barArea = self.screen.width - reserved
 
     -- Bar characters
     local barChar = "#"
@@ -557,10 +557,10 @@ function console:render(startY, endY)
 end
 
 -- Handle input text
-function console:handleInput(text)    
+function console:handleInput(text)
+    self.screen:jumpVerticalEnd()
     self:runCommand(text)
     self.commandHistoryCursor = 0
-    self.screen:jumpVerticalEnd()
 end
 
 function console:getVerticalSize()

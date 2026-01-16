@@ -11,7 +11,7 @@ function command:constructor(server)
 
         -- Define the command sequences here
         -- Example: new("sequence", "commandName", serverFunc, clientFunc)
-        class("../sequence"):create(getAbsolutePath("../sequences/bounce/manifest.lua"), true)
+        class("../sequence"):create(hive, self, getAbsolutePath("../sequences/bounce/manifest.lua"), true)
     })
 
 end
