@@ -1,9 +1,9 @@
 return {
-  name = "debug",
+  name = "disconnect",
   version = "1.0",
   dependencies = {},
   server = "server.lua",
   client = "client.lua",
-  description = "Debug messages from the hive network",
-  timeout = 60
+  description = "Graceful node disconnection sequence",
+  timeout = 10
 }

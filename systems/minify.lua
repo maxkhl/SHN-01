@@ -119,19 +119,26 @@ function minify.parseCheap(source)
         i = i + 1
       end
 
-    -- Long bracket strings [[...]]
-    elseif c == "[" and peekChar() == "[" then
-      table.insert(out, "[[")
-      i = i + 2
-      while i <= len do
-        if source:sub(i,i+1) == "]]" then
-          table.insert(out, "]]")
-          i = i + 2
-          break
-        else
-          table.insert(out, source:sub(i,i))
-          i = i + 1
+    -- Long bracket strings [[...]] (but only if truly followed by another [)
+    elseif c == "[" then
+      if peekChar(1) == "[" then
+        -- This is a long bracket string
+        table.insert(out, "[[")
+        i = i + 2
+        while i <= len do
+          if source:sub(i,i+1) == "]]" then
+            table.insert(out, "]]")
+            i = i + 2
+            break
+          else
+            table.insert(out, source:sub(i,i))
+            i = i + 1
+          end
         end
+      else
+        -- Regular bracket (like array index [1])
+        table.insert(out, c)
+        i = i + 1
       end
 
     else

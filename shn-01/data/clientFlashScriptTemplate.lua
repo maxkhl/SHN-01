@@ -2,13 +2,13 @@
 -- It is minified and compressed before being flashed to an EEPROM
 
 -- This identifies the hive that flashed this node
-local hive = { id = "SHN-NEXUS-CEB7", address = nil }
+local hive = { id = "__HIVEID__", address = nil }
 -- This identifies the node to the hive
-local node = { id = "SHN-NEXUS-CEB7-SOLAR", address = nil }
+local node = { id = "__NODEID__", address = nil }
 -- The port to use for broadcasting
 local broadcastPort = 2011
--- The port to use for bounced messages
-local bouncePort = 2022
+-- The port to use for heartbeat messages
+local heartbeatPort = 2022
 -- Update frequency in seconds
 local uFreq = 1.0
 -- Bootstrap mode flag. Indicates if the node is in initial setup phase
@@ -60,10 +60,17 @@ while mdm == nil do
 end
 
 if not mdm.isOpen(broadcastPort) then mdm.open(broadcastPort) end
+if not mdm.isOpen(heartbeatPort) then mdm.open(heartbeatPort) end
+
+-- Heartbeat tracking
+local lastHeartbeat = 0
+local heartbeatInterval = 30  -- Send heartbeat every 30 seconds
+local heartbeatSessionId = nil  -- Track the heartbeat session ID
+local sessionRegistry = {}  -- Track all session IDs by sequence name
 
 -- Runs the given code in the provided environment
 function run(code, environment)
-    local data, err = load(injected, nil, nil, environment)
+    local data, err = load(code, nil, nil, environment)
     if not data then
         error("Failed to compile " .. string.sub(code, 1, 20) .. ": " .. tostring(err))
     end
@@ -83,20 +90,20 @@ function error(msg)
   -- Beep critical error sequence
   beepSeq(bSeq.crit)
   -- Send error message to hive
-  send(bouncePort, "ERROR", tostring(msg))
+  send(heartbeatPort, "ERROR", tostring(msg))
 end
 
 -- Sends debug info to the hive
 function debug(msg)
   -- Send debug info to hive
-  send(bouncePort, "INFO", tostring(msg))
+  send(heartbeatPort, "INFO", tostring(msg))
 end
 
 -- Sends a message to the hive
 function send(port, comm, ...)
   if hive.address then
-    if not mdm.send(hive.address, port, comm, d0, d1, d2, d3) then
-      error("Send:" .. comm .. d0)
+    if not mdm.send(hive.address, port, comm, ...) then
+      error("Send:" .. comm)
     end
   end
 end
@@ -119,8 +126,28 @@ end
 
 -- The main update loop
 while true do
-  -- Placeholder for main loop logic  
-  if not b.serverAdr then mdm.broadcast(b.prot.net.port, b.com.H, b.name) end
+  -- Try to connect to hive if not yet connected
+  if not hive.address then 
+    callHive()
+    heartbeatSessionId = nil  -- Reset session on disconnect
+    sessionRegistry = {}  -- Clear all sessions on disconnect
+  end
+  
+  -- Send heartbeat if connected and enough time has passed
+  if hive.address and not bootstrap then
+    local now = computer.uptime()
+    if now - lastHeartbeat >= heartbeatInterval then
+      if heartbeatSessionId then
+        -- Send to existing session
+        mdm.send(hive.address, heartbeatPort, heartbeatSessionId, "HEARTBEAT", node.id)
+      else
+        -- Start new heartbeat session
+        mdm.send(hive.address, heartbeatPort, "heartbeat", "HEARTBEAT", node.id)
+      end
+      lastHeartbeat = now
+    end
+  end
+  
   for _, e in ipairs(sleep(uFreq)) do
     local signal, locAddr, remAddr, port, dist, command, d0, d1, d2, d3 = table.unpack(e)
     if signal == "modem_message" and remAddr ~= node.address then
@@ -129,9 +156,33 @@ while true do
           hive.address = remAddr
           bootstrap = false
           beepSeq(bSeq.conn)
+          -- Reset heartbeat session when reconnecting
+          heartbeatSessionId = nil
         end
       else
-        -- Handle other messages when not in bootstrap mode
+        -- Handle messages when connected
+        if command == "server_restart" and d0 == hive.id then
+          -- Server is restarting, reset our connection state
+          beepSeq(bSeq.disc)
+          hive.address = nil
+          bootstrap = true
+          heartbeatSessionId = nil
+          sessionRegistry = {}
+        elseif command == "restart" and d0 == node.id then
+          -- Direct restart command for this node
+          beepSeq(bSeq.disc)
+          computer.shutdown(true)
+        elseif command == "timeout" and d0 == node.id then
+          -- Server timed us out, reconnect
+          beepSeq(bSeq.warn)
+          hive.address = nil
+          bootstrap = true
+          heartbeatSessionId = nil
+          sessionRegistry = {}
+        elseif command == "HEARTBEAT_ACK" and d0 == node.id then
+          -- Heartbeat acknowledged, connection is healthy
+          -- No longer need to track HEARTBEAT_SESSION as SESSION_CREATED handles it
+        end
       end
 
     end

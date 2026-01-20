@@ -21,10 +21,9 @@ function protocol:constructor(server, name, port, description, sequences)
 
     -- Contains all sequences this protocol supports indexed by name
     self.sequences = {}
-    for _, seq in ipairs(sequences) do
+    for i, seq in ipairs(sequences) do
         self.sequences[seq.name] = seq
     end
-    
 end
 
 function protocol:__tostring()
@@ -39,23 +38,51 @@ function protocol:start()
     -- Open the modem port for this protocol
     modem.open(self.port)
 
+    -- Capture protocol reference locally to avoid closure issues
+    local thisProtocol = self
+    local thisPort = self.port
+    local thisName = self.name
+
     globalEvents.onNetMessageReceived:subscribe(function(receiver, sender, port, distance, ...)
-        if port == self.port then
-            local message = self:createMessage(sender, self, distance, ...)
+        if port == thisPort then
+            -- Ignore messages from self (server receiving its own broadcasts)
+            local modem = getComponent("modem")
+            if sender == modem.address then
+                return
+            end
+            
+            -- Check if node is connected (except for GATE protocol which handles handshake)
+            if thisPort ~= 2011 and thisProtocol.server and thisProtocol.server.isNodeConnected then
+                if not thisProtocol.server:isNodeConnected(sender) then
+                    console:log("<c=0xFF0000>Rejected message from non-connected node " .. sender .. " on protocol " .. thisName .. "</c>\n  Message: " .. table.concat({...}, ", "))
+                    return
+                end
+            end
+            
+            local message = thisProtocol:createMessage(sender, thisProtocol, distance, ...)
             local args = {...}
             
             -- First arg is either a sequence name (new session) or session ID (existing session)
             local identifier = args[1]
             
-            if self.sequences[identifier] then
+            -- Ignore server-to-client notification messages
+            if identifier == "SESSION_CREATED" or identifier == "handshake_ack" or identifier == "transmit_ack" then
+                debugPrint("Ignoring server-to-client notification: " .. tostring(identifier))
+                return
+            end
+            
+            if thisProtocol.sequences[identifier] then
                 -- This is a new sequence request - create a session
-                local sequence = self.sequences[identifier]
+                local sequence = thisProtocol.sequences[identifier]
+                
                 local sessionID = sequence:createSession(message)
-                print("Started new session " .. sessionID .. " for sequence " .. identifier)
+                debugPrint("Started new session <c=0xFFFFFF>" .. sessionID .. "</c> for sequence <c=0xFF00FF>" .. identifier .. "</c>")
+                
+                -- Note: createSession calls process internally which sends responses
             else
                 -- This should be a session ID - find which sequence owns it
                 local foundSequence = nil
-                for _, seq in pairs(self.sequences) do
+                for _, seq in pairs(thisProtocol.sequences) do
                     if seq:findSession(identifier) then
                         foundSequence = seq
                         break
@@ -63,29 +90,44 @@ function protocol:start()
                 end
                 
                 if foundSequence then
-                    -- Process the message in the existing session
-                    foundSequence:process(identifier, message)
+                    -- Process the message in the existing session and send responses
+                    local outbound = foundSequence:process(identifier, message)
+                    if outbound then
+                        for _, msg in ipairs(outbound) do
+                            msg:send()
+                        end
+                    end
                 else
-                    error("Unknown message identifier '" .. tostring(identifier) .. "' in protocol " .. self.name)
+                    error("Unknown message identifier '" .. tostring(identifier) .. "' in protocol " .. thisName)
                 end
             end
 
-            if self.handleMessage then
-                self:handleMessage(receiver, sender, distance, ...)
+            if thisProtocol.handleMessage then
+                thisProtocol:handleMessage(receiver, sender, distance, ...)
             end
         end
     end)
 
-    print("<c=0xFF00FF>></c>" ..tostring(self))
+    debugPrint(tostring(self))
 
     for name, seq in pairs(self.sequences) do
-        print("<c=0xFF00FF>>></c>" .. tostring(seq))
+        debugPrint("  > " .. tostring(seq))
     end
 end
 
 function protocol:createMessage(remoteAddress, protocol, distance, ...)
     assert(self, "Must be called on a object")
-    return class("/shn-01/network/message"):new(remoteAddress, protocol, distance, ...)
+    -- For inbound messages, we need to find if this node is connected
+    local node = self.server and self.server.nodes and self.server.nodes[remoteAddress] or nil
+    return class("messages/inbound"):new(remoteAddress, node, protocol, distance, ...)
+end
+
+function protocol:getSequenceNames()
+    local names = {}
+    for name, _ in pairs(self.sequences) do
+        table.insert(names, name)
+    end
+    return names
 end
 
 return protocol

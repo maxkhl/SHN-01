@@ -7,28 +7,49 @@
 local sequence = newClass()
 
 -- Creates a new sequence object based on the manifest and mode
-function sequence:create(hive, protocol, manifestPath, serverMode, ...)
+-- This is a static factory method - call as: sequenceClass.create(hive, protocol, manifestPath, serverMode)
+function sequence.create(hive, protocol, manifestPath, serverMode, ...)
     assert(manifestPath, "No manifest path given")
     
     local manifest = include(manifestPath)
     assert(manifest, "Could not load manifest from " .. manifestPath)
 
     assert(manifest.name, "Manifest has no name")
-    assert(manifest.serverClass or manifest.clientClass, "Manifest has no server or client class defined")
-    assert(serverMode, "Invalid serverMode mode, expected true for server, false for client")
+    assert(manifest.server or manifest.client, "Manifest has no server or client defined")
+    assert(serverMode ~= nil, "Invalid serverMode mode, expected true for server, false for client")
     assert(type(serverMode) == "boolean", "Invalid serverMode mode, expected boolean")
-    assert(self, "Must be called on a object")
-    local sequenceClass = nil
-    if serverMode and manifest.serverClass then
-        sequenceClass = class(getAbsolutePath(manifest.serverClass, file.getDir(manifestPath)))
-        assert(sequenceClass, "No sequence class found for server mode " .. manifest.name)
-    elseif not serverMode and manifest.clientClass then
-        sequenceClass = class(getAbsolutePath(manifest.clientClass, file.getDir(manifestPath)))
-        assert(sequenceClass, "No sequence class found for client mode " .. manifest.name)
+    
+    local sequenceFuncFactory = nil
+    if serverMode and manifest.server then
+        sequenceFuncFactory = include(getAbsolutePath(manifest.server, file.getDir(manifestPath)))
+        assert(sequenceFuncFactory, "No sequence function found for server mode " .. manifest.name)
+        assert(type(sequenceFuncFactory) == "function", "Expected sequence function factory, got " .. type(sequenceFuncFactory))
+    elseif not serverMode and manifest.client then
+        sequenceFuncFactory = include(getAbsolutePath(manifest.client, file.getDir(manifestPath)))
+        assert(sequenceFuncFactory, "No sequence function found for client mode " .. manifest.name)
+        assert(type(sequenceFuncFactory) == "function", "Expected sequence function factory, got " .. type(sequenceFuncFactory))
     else
         error("Sequence manifest " .. manifest.name .. " no valid mode")
-    end    
-    return sequenceClass:new(hive, protocol, ...)
+    end
+    
+    -- Call the factory function to get the actual coroutine function
+    -- Server functions receive hive and protocol, client functions receive nothing
+    local sequenceFunc = nil
+    if serverMode then
+        sequenceFunc = sequenceFuncFactory(hive, protocol)
+    else
+        sequenceFunc = sequenceFuncFactory()
+    end
+    assert(type(sequenceFunc) == "function", "Expected sequence function from factory, got " .. type(sequenceFunc))
+    
+    -- Create sequence instance with the function
+    local instance = sequence:new(
+        manifest.name,
+        sequenceFunc,
+        manifest.timeout,
+        manifest.timeoutCallback
+    )
+    return instance
 end
 
 function sequence:constructor(name, func, timeout, timeoutCallback)
@@ -50,14 +71,78 @@ end
 function sequence:createSession(firstMessage)
     self:assert(self, "Must be called on a object")
     
+    -- Generate session ID with collision detection
+    local sessionId = crypto.sessionID()
+    local maxRetries = 10
+    local retryCount = 0
+    
+    -- Check for collisions across all protocols and sequences
+    local function isSessionIdUsed(id)
+        if not server or not server.protocols then
+            return false
+        end
+        
+        for _, protocol in pairs(server.protocols) do
+            if protocol.sequences then
+                for _, seq in pairs(protocol.sequences) do
+                    if seq.sessions then
+                        for _, session in ipairs(seq.sessions) do
+                            if session.id == id then
+                                return true
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        return false
+    end
+    
+    -- Regenerate ID if collision detected
+    while isSessionIdUsed(sessionId) and retryCount < maxRetries do
+        debugPrint("<c=0xFF0000>Session ID collision detected: " .. sessionId .. "</c>, regenerating...")
+        sessionId = crypto.sessionID()
+        retryCount = retryCount + 1
+    end
+    
+    if retryCount >= maxRetries then
+        error("Failed to generate unique session ID after " .. maxRetries .. " attempts")
+    end
+    
     local newSession = {
-        id = crypto.sessionID(),
+        id = sessionId,
         routine = coroutine.create(self.func),
-        startTime = os.time(),
-        result = nil
+        startTime = computer.uptime(),
+        result = nil,
+        nodeAddress = firstMessage.remoteAddress  -- Track which node this session belongs to
     }
     table.insert(self.sessions, newSession)
+    
+    -- Register session with the node for efficient cleanup
+    if firstMessage.node then
+        firstMessage.node.sessions[newSession.id] = true
+    end
+    
+    -- Send SESSION_CREATED notification to client
+    if firstMessage.node then
+        -- Use outbound message class when node exists
+        local sessionNotification = class("messages/outbound"):new(
+            firstMessage.node,
+            firstMessage.protocol,
+            firstMessage.distance,
+            "SESSION_CREATED",
+            newSession.id
+        )
+        sessionNotification:send()
+    else
+        -- Send directly via modem when node doesn't exist yet (e.g., during handshake)
+        local modem = getComponent("modem")
+        modem.send(firstMessage.remoteAddress, firstMessage.protocol.port, "SESSION_CREATED", newSession.id)
+    end
+    
+    -- Process the first message to kick off the session
     self:process(newSession.id, firstMessage)
+    
     return newSession.id
 end
 
@@ -81,6 +166,13 @@ function sequence:removeSession(sessionID)
     
     for i, session in ipairs(self.sessions) do
         if session.id == sessionID then
+            -- Remove from node's session registry
+            if server and server.nodes and server.nodes[session.nodeAddress] then
+                local node = server.nodes[session.nodeAddress]
+                if node.sessions then
+                    node.sessions[sessionID] = nil
+                end
+            end
             table.remove(self.sessions, i)
             return true
         end
@@ -124,7 +216,8 @@ function sequence:checkTimeout(session)
     self:assert(self, "Must be called on a object")
     self:assert(session, "No session given")
     
-    if os.time() - session.startTime > self.timeout then
+    -- Skip timeout check if timeout is 0 (indefinite session)
+    if self.timeout and self.timeout > 0 and computer.uptime() - session.startTime > self.timeout then
         if self.timeoutCallback then
             self.timeoutCallback(session.id)
         end
@@ -132,6 +225,17 @@ function sequence:checkTimeout(session)
         return true
     end
     return false
+end
+
+-- Checks all sessions for timeouts and removes timed-out sessions
+function sequence:checkTimeouts()
+    self:assert(self, "Must be called on a object")
+    
+    -- Iterate backwards to safely remove during iteration
+    for i = #self.sessions, 1, -1 do
+        local session = self.sessions[i]
+        self:checkTimeout(session)
+    end
 end
 
 -- Handles an error in the sequence (for a specific session if provided)
@@ -171,7 +275,7 @@ function sequence:process(sessionID, message)
     end
     
     -- Reset the session timeout since we're processing a message
-    session.startTime = os.time()
+    session.startTime = computer.uptime()
 
     -- Resume the session's coroutine with the incoming message. Use pcall to catch errors.
     -- IMPORTANT: this implementation strictly assumes the coroutine returns a single TABLE
@@ -213,8 +317,13 @@ function sequence:process(sessionID, message)
     if coroutine.status(session.routine) == "dead" then
         self:removeSession(session.id)
     end
-
-    return outbound
+    
+    -- Send any responses
+    if outbound then
+        for _, msg in ipairs(outbound) do
+            msg:send()
+        end
+    end
 end
 
 return sequence

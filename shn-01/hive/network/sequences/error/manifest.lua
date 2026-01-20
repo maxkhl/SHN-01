@@ -1,9 +1,9 @@
 return {
-  name = "debug",
+  name = "error",
   version = "1.0",
   dependencies = {},
   server = "server.lua",
   client = "client.lua",
-  description = "Debug messages from the hive network",
-  timeout = 60
+  description = "Structured error reporting sequence",
+  timeout = 10
 }

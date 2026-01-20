@@ -17,7 +17,9 @@ function crypto.sessionID()
   local nano = computer.uptime() -- floating point uptime
   math.randomseed(os.time() + computer.uptime() * 1000)
   local rand = math.random(100000, 999999)
-  return string.format("s%x%x", nano * 1000, rand)
+  -- Convert to integers to avoid format issues
+  local nanoInt = math.floor(nano * 1000)
+  return string.format("s%x%x", nanoInt, rand)
 end
 
 -- Generates a persistent ID that is guaranteed to be unique across reboots

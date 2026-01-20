@@ -7,13 +7,24 @@ local command = newClass(class("../protocol"))
 
 function command:constructor(hive)
     assert(self, "Must be called on a object")
-    self.base:constructor(hive, "GATE", 2011, "Response Verification", {
-
-        -- Define the command sequences here
-        -- Example: new("sequence", "commandName", serverFunc, clientFunc)
-        class("../sequence"):create(hive, self, getAbsolutePath("../sequences/handshake/manifest.lua"), true)
-    })
-
+    
+    -- Create sequences FIRST
+    local sequenceClass = class("../sequence")
+    local handshakeSeq = sequenceClass.create(hive, self, getAbsolutePath("../sequences/handshake/manifest.lua"), true)
+    local disconnectSeq = sequenceClass.create(hive, self, getAbsolutePath("../sequences/disconnect/manifest.lua"), true)
+    
+    -- Initialize protocol properties directly
+    self.server = hive
+    self.name = "GATE"
+    self.description = "Response Verification"
+    self.port = 2011
+    
+    -- Create unique sequences table for this protocol instance
+    self.sequences = setmetatable({}, {__name = "sequences_for_GATE"})
+    local sequences = {handshakeSeq, disconnectSeq}
+    for i, seq in ipairs(sequences) do
+        self.sequences[seq.name] = seq
+    end
 end
 
 return command

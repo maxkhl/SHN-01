@@ -4,13 +4,179 @@
 ]]
 local node = newClass()
 
-function node:constructor(address, nodeId)
+function node:constructor(address, nodeId, databaseData)
     assert(self, "Must be called on a object")
     assert(address, "No remote address given")
     assert(nodeId, "No node ID given")
 
     self.address = address
     self.id = nodeId
+    
+    -- Runtime state
+    self.lastSeen = computer.uptime()
+    self.bootstrapped = false
+    self.bootstrapAttempts = 0
+    self.bootstrapTime = nil
+    self.sessions = {}  -- Track all session IDs for this node (keyed by session ID)
+    
+    -- Database state (optional)
+    if databaseData then
+        self.script = databaseData.script
+        self.defective = databaseData.defective or false
+        self.lastError = databaseData.lastError
+    else
+        self.script = nil
+        self.defective = false
+        self.lastError = nil
+    end
+end
+
+-- Update last seen timestamp (called by heartbeat)
+function node:updateHeartbeat()
+    self.lastSeen = computer.uptime()
+end
+
+-- Check if node is stale based on timeout
+function node:isStale(timeout)
+    if not self.lastSeen then
+        return false
+    end
+    return (computer.uptime() - self.lastSeen) > timeout
+end
+
+-- Mark node as successfully bootstrapped
+function node:markBootstrapped()
+    self.bootstrapped = true
+    self.bootstrapTime = computer.uptime()
+end
+
+-- Increment bootstrap attempt counter
+function node:incrementBootstrapAttempt()
+    self.bootstrapAttempts = self.bootstrapAttempts + 1
+end
+
+-- Mark node as defective in database and remove from active connections
+function node:markDefective(error)
+    self.defective = true
+    self.lastError = error or "Unknown error"
+    
+    -- Update database
+    local database = require("/systems/database.lua")
+    local nodes = database:getKey("shn01", "nodes") or {}
+    
+    for i, dbNode in ipairs(nodes) do
+        if dbNode.id == self.id then
+            nodes[i].defective = true
+            nodes[i].lastError = self.lastError
+            database:setKey("shn01", "nodes", nodes)
+            break
+        end
+    end
+    
+    -- Remove from active connections
+    self:remove()
+end
+
+-- Clear all sessions associated with this node
+function node:clearSessions()
+    if not server or not server.protocols then
+        return
+    end
+    
+    -- Iterate through all session IDs and remove them from sequences
+    for sessionID, _ in pairs(self.sessions) do
+        -- Find the session across all protocols and sequences
+        for _, protocol in pairs(server.protocols) do
+            for _, sequence in pairs(protocol.sequences) do
+                if sequence:findSession(sessionID) then
+                    sequence:removeSession(sessionID)
+                    break
+                end
+            end
+        end
+    end
+    
+    -- Clear the sessions table
+    self.sessions = {}
+end
+
+-- Remove node from server.nodes
+function node:remove()
+    -- Clear all sessions before removing the node
+    self:clearSessions()
+    
+    if server and server.nodes then
+        server.nodes[self.address] = nil
+    end
+end
+
+-- Get node-specific script from database
+function node:getScript()
+    return self.script
+end
+
+-- Check if node is marked as defective
+function node:isDefective()
+    return self.defective == true
+end
+
+-- Static method: Load node data from database
+function node.loadFromDatabase(nodeId)
+    local database = require("/systems/database.lua")
+    local nodes = database:getKey("shn01", "nodes") or {}
+    
+    for _, dbNode in ipairs(nodes) do
+        if dbNode.id == nodeId then
+            return dbNode
+        end
+    end
+    
+    return nil
+end
+
+-- Static method: Save node data to database
+function node.saveToDatabase(nodeData)
+    assert(nodeData.id, "Node data must have an id")
+    
+    local database = require("/systems/database.lua")
+    local nodes = database:getKey("shn01", "nodes") or {}
+    
+    local found = false
+    for i, dbNode in ipairs(nodes) do
+        if dbNode.id == nodeData.id then
+            nodes[i] = nodeData
+            found = true
+            break
+        end
+    end
+    
+    if not found then
+        table.insert(nodes, nodeData)
+    end
+    
+    database:setKey("shn01", "nodes", nodes)
+end
+
+-- Static method: Get all nodes from database
+function node.getAllFromDatabase()
+    local database = require("/systems/database.lua")
+    return database:getKey("shn01", "nodes") or {}
+end
+
+-- Static method: Remove node from database
+function node.removeFromDatabase(nodeId)
+    local database = require("/systems/database.lua")
+    local nodes = database:getKey("shn01", "nodes") or {}
+    
+    for i, dbNode in ipairs(nodes) do
+        if dbNode.id == nodeId then
+            table.remove(nodes, i)
+            database:setKey("shn01", "nodes", nodes)
+            return true
+        end
+    end
+    
+    return false
 end
 
 
