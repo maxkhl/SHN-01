@@ -1,7 +1,7 @@
 local clientFlash = {}
 
 local minify = require("../systems/minify")
-local md5 = require("md5")
+local adler32 = require("adler32") -- Using adler32 module for checksum functions
 
 -- Helper function to generate flash code for a node
 local function generateFlashCode(nodeId)
@@ -30,19 +30,16 @@ local function generateFlashCode(nodeId)
     
     -- Read template file (Stage 1 - minimal EEPROM)
     local templatePath = "/shn-01/data/clientFlashStage1.lua"
-    local templateCode = file.read(templatePath)
-    if not templateCode then
+    local minified = file.readWithIncludesMinified(templatePath, minify.parseCheap)
+    if not minified then
         return nil, nil, "Failed to read Stage 1 template file"
     end
     
     -- Inject hive ID and node ID into template (before minification)
-    local injectedCode = templateCode:gsub('__HIVEID__', getHiveId())
+    local injectedCode = minified:gsub('__HIVEID__', getHiveId())
     injectedCode = injectedCode:gsub('__NODEID__', nodeId)
-    
-    -- Minify the code
-    local minified = minify.parseCheap(injectedCode)
-    
-    return minified, nodeData, nil
+        
+    return injectedCode, nodeData, nil
 end
 
 console:addCommand("FLASH.SIZETEST", "Tests the compression on the Stage 1 EEPROM file \nParameters:\n1 Compression rate LOW/MEDIUM/HIGH\n2 Output Code TRUE/FALSE", function(compressionLevel, outputCode)
@@ -113,10 +110,10 @@ console:addCommand("FLASH.NODE", "Flashes an EEPROM with bootstrap code for a sp
         eeprom.set(minified)
         eeprom.setLabel(nodeId)
         
-        -- Validate with MD5 checksum
+        -- Validate with Adler-32 checksum
         local written = eeprom.get()
-        local originalChecksum = md5.sumhexa(minified)
-        local writtenChecksum = md5.sumhexa(written)
+        local originalChecksum = adler32.run(minified)
+        local writtenChecksum = adler32.run(written)
         
         if originalChecksum == writtenChecksum then
             console:log("<c=0x00FF00>EEPROM flashed successfully!</c>")
@@ -174,5 +171,5 @@ console:addCommand("FLASH.NODE.FILE", "Flashes bootstrap code for a node to a fi
     console:log("Node ID: <c=0xFFFF00>" .. nodeId .. "</c>")
     console:log("Output: <c=0xFFFF00>" .. outputPath .. "</c>")
     console:log("Size: <c=0xFFFFFF>" .. minifiedSize .. " / 4096 bytes</c> <c=0x00FF00>(" .. math.floor((minifiedSize / 4096) * 100) .. "%)</c>")
-    console:log("MD5: <c=0xFF00FF>" .. md5.sumhexa(minified) .. "</c>")
+    console:log("Checksum: <c=0xFF00FF>" .. adler32.run(minified) .. "</c>")
 end)

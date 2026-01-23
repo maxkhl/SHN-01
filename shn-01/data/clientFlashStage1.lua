@@ -3,24 +3,38 @@
 -- All advanced features are loaded in Stage 2
 
 -- Hive and node identification (replaced during flash)
-local hive = { id = "__HIVEID__", address = nil }
-local node = { id = "__NODEID__", address = nil }
+hive = { id = "__HIVEID__", address = nil }
+node = { id = "__NODEID__", address = nil }
+
+adler32 = include("/shn-01/adler32.lua")
 
 -- Ports for communication
-local gatePort = 2011  -- GATE protocol (handshake)
-local filePort = 2031  -- FILE protocol (transmit)
-local corePort = 2015  -- FILE protocol (transmit)
+gatePort = 2011  -- GATE protocol (handshake)
+filePort = 2031  -- FILE protocol (transmit)
+corePort = 2015  -- FILE protocol (transmit)
 
 -- Component discovery helper
 function getComp(name)
   for a, c in pairs(component.list(name)) do return component.proxy(a), a end
 end
 
+-- Sleeps and collects events
+function sleep(sec)
+  local evts, deadline = {}, computer.uptime() + (sec or 0)
+  repeat
+    local left = deadline - computer.uptime()
+    if left <= 0 then break end
+    local e = {computer.pullSignal(left)}
+    if e[1] then evts[#evts+1] = e end
+  until computer.uptime() >= deadline
+  return evts
+end
+
 -- Initialize modem
 mdm, node.address = getComp("modem")
 while mdm == nil do
   computer.beep(2000, 0.5)  -- Critical beep if no modem
-  computer.sleep(1)
+  sleep(1)
   mdm, node.address = getComp("modem")
 end
 
@@ -58,7 +72,6 @@ if not mdm.isOpen(filePort) then mdm.open(filePort) end
 cls()
 print("Node: " .. node.id)
 print("Hive: " .. hive.id)
-print("Connecting...")
 
 -- Stage 2 transmission state
 local stage2Buffer = {}
@@ -77,82 +90,53 @@ function criticalError(msg)
   computer.beep(2000, 0.08)
   computer.beep(180, 0.3)
   computer.beep(180, 0.3)
-  send(corePort, "ERROR", tostring(msg))
-  computer.sleep(2)
+  send(corePort, "ERROR", nil, tostring(msg))
+  print("Critical Error: " .. tostring(msg))
+  sleep(2)
   computer.shutdown(true)  -- Reboot
 end
 
 -- Handshake function
 function handshake()
-  mdm.broadcast(gatePort, "handshake", node.id, hive.id)
+  mdm.broadcast(gatePort, "handshake", nil, node.id, hive.id)
   print("Sent handshake broadcast")
 end
 
 -- Process transmit packet
-function handleTransmitPacket(seqNum, totalPackets, data, checksum)
+function handleTransmitPacket(sequence, sessionid,seqNum, totalPackets, checksum, data)
   -- Initialize buffer on first packet
   if seqNum == 1 then
     stage2Buffer = {}
     stage2Total = totalPackets
   end
   
+  if adler32.run(data) ~= checksum then
+    print("Packet " .. seqNum .. " checksum mismatch! Expected: " .. checksum .. ", Got: " .. adler32.run(data))
+    -- Don't ACK corrupted packets - server will retransmit
+    return
+  end
+
   -- Store packet
   stage2Buffer[seqNum] = data
   
   -- Send ACK
-  send(filePort, "transmit_ack", seqNum)
+  send(filePort, sequence, sessionid, "TRANSMIT_ACK", seqNum)
 end
 
 -- Process transmit complete
-function handleTransmitComplete(totalPackets, checksumExpected)
-  -- Check for missing packets
-  local missing = {}
-  for i = 1, totalPackets do
-    if not stage2Buffer[i] then
-      table.insert(missing, i)
-    end
+function handleTransmitComplete(sequence, sessionid, totalPackets, checksumExpected)
+  -- Reassemble and clear buffer
+  local content = table.concat(stage2Buffer, "", 1, totalPackets)
+  stage2Buffer, stage2Total, stage2Retries = {}, 0, 0
+  
+  -- Load and execute Stage 2
+  local stage2Func, err = load(content, "stage2", "t", _G)
+  if not stage2Func then
+    criticalError("Stage 2 compile failed: " .. tostring(err))
   end
   
-  if #missing > 0 then
-    -- Request missing packets
-    for _, seqNum in ipairs(missing) do
-      send(filePort, "transmit_request", seqNum)
-    end
-    return false
-  end
-  
-  -- Reassemble file
-  local content = ""
-  for i = 1, totalPackets do
-    content = content .. (stage2Buffer[i] or "")
-  end
-  
-  -- Validate checksum
-  local actualChecksum = computeMD5(content)
-  if actualChecksum ~= checksumExpected then
-    stage2Retries = stage2Retries + 1
-    if stage2Retries >= 10 then
-      criticalError("Stage 2 checksum failed 10 times")
-    end
-    send(filePort, "CHECKSUM_FAIL")
-    stage2Buffer = {}
-    return false
-  end
-  
-  -- Clear buffer
-  stage2Buffer = {}
-  stage2Total = 0
-  stage2Retries = 0
-  
-  -- Execute Stage 2 in global environment
-  local success, result = pcall(function()
-    local stage2Func, err = load(content, "stage2", "t", _G)
-    if not stage2Func then
-      error("Stage 2 compile failed: " .. tostring(err))
-    end
-    return stage2Func()
-  end)
-  
+  print("Stage 2 compiled successfully, executing...")
+  local success, result = pcall(stage2Func)
   if not success then
     criticalError("Stage 2 execution failed: " .. tostring(result))
   end
@@ -160,29 +144,9 @@ function handleTransmitComplete(totalPackets, checksumExpected)
   return true
 end
 
--- Simple MD5 placeholder (will be replaced with actual md5 implementation)
-function computeMD5(str)
-  -- For Stage 1, we skip MD5 validation to save space
-  -- Server sends checksum but client doesn't validate
-  return str  -- Return the string itself as "checksum"
-end
-
 -- Connection state
 local connected = false
 local lastHandshake = 0
-
-
--- Sleeps and collects events
-function sleep(sec)
-  local evts, deadline = {}, computer.uptime() + (sec or 0)
-  repeat
-    local left = deadline - computer.uptime()
-    if left <= 0 then break end
-    local e = {computer.pullSignal(left)}
-    if e[1] then evts[#evts+1] = e end
-  until computer.uptime() >= deadline
-  return evts
-end
 
 lastHandshake = -9999999  -- Force immediate handshake on start
 -- Main loop
@@ -194,8 +158,6 @@ while true do
     if not connected then
         local now = computer.uptime()
         if now - lastHandshake >= 20 then
-            print("Not connected, sending handshake...")
-            criticalError("Testing SESSION_CREATED handling")  -- Placeholder
             handshake()
             lastHandshake = now
         end
@@ -203,7 +165,8 @@ while true do
 
     for _, event in ipairs(events) do
         if event[1] == "modem_message" then
-            local _, locAddr, remAddr, port, dist, command, d0, d1, d2, d3 = table.unpack(event)
+            local _, locAddr, remAddr, port, dist, sequence, sessionid, command, d0, d1, d2, d3 = table.unpack(event)
+            command = string.upper(command or "")
             
             -- Ignore messages from self and only process messages from the hive (after connection)
             if remAddr == node.address then
@@ -215,36 +178,38 @@ while true do
                 goto continue
             end
             
-            if command == "handshake_ack" and d0 == node.id and d1 == hive.id then
+            if command == "HANDSHAKE_ACK" and d0 == node.id and d1 == hive.id then
                 -- Handshake successful
                 hive.address = remAddr
                 connected = true
                 print("Connected!")
-                print("Downloading Stage 2...")
+                print("Requesting Stage 2...")
                 computer.beep(600, 0.1)
                 computer.beep(900, 0.1)
                 computer.beep(1200, 0.2)
-                -- Server will now send Stage 2
+                -- Server will now send Stage 2                
+                send(port, sequence, sessionid, "STAGE2_REQUEST")
                 
-            elseif command == "transmit_packet" then
+            elseif command == "TRANSMIT_PACKET" then
                 -- Receiving Stage 2 file packet
                 local seqNum = d0
                 local totalPackets = d1
-                local data = d2
-                handleTransmitPacket(seqNum, totalPackets, data)
+                local checksum = d2
+                local data = d3
+                print("Received packet " .. seqNum .. " of " .. totalPackets)
+                handleTransmitPacket(sequence, sessionid, seqNum, totalPackets, checksum, data)
                 
-            elseif command == "transmit_complete" then
+            elseif command == "TRANSMIT_COMPLETE" then
                 -- Stage 2 transmission complete
                 local totalPackets = d0
                 local checksum = d1
-                print("Stage 2 complete")
                 if handleTransmitComplete(totalPackets, checksum) then
-                -- Stage 2 loaded successfully, it takes over from here
-                print("Starting Stage 2...")
-                break
+                  -- Stage 2 loaded successfully, it takes over from here
+                  print("Starting Stage 2...")
+                  break
                 end
                 
-            elseif command == "restart" and d0 == node.id then
+            elseif command == "RESTART" and d0 == node.id then
                 -- Direct restart command
                 computer.beep(1000, 0.1)
                 computer.beep(650, 0.15)

@@ -5,5 +5,6 @@ return {
   server = "server.lua",
   client = "client.lua",
   description = "File transmit sequence. Transmits files from one location to another.",
-  timeout = 60
+  timeout = 60,
+  sequence = true,
 }

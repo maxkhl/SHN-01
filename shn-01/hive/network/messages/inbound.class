@@ -11,8 +11,15 @@ function inbound:constructor(address, node, protocol, distance, ...)
         error("Node address does not match message address")
     end
 
+
     self.node = node
     self.base:constructor(address, protocol, distance, ...)
+    local dataParts = {}
+    for i = 1, #self.data do
+        dataParts[i] = tostring(self.data[i])
+    end
+    local dataStr = table.concat(dataParts, ", "):gsub("[\n\r]", " ")
+    debugPrint("Receiving message on protocol <c=0xFFFFFF>" .. protocol.name .. "</c>: " .. (#dataStr > 100 and (dataStr:sub(1, 100) .. "...") or dataStr), node, 2)
 end
 
 function inbound:__tostring()

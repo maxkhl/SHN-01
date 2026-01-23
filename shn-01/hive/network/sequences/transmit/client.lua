@@ -3,17 +3,29 @@
 return function()
     return function(message)
         -- Client-side file receive logic
-        -- Message format: "transmit_packet", seqNum, totalPackets, data or "transmit_complete", totalPackets, failedPackets
+        -- Message format: "transmit_packet", seqNum, totalPackets, checksum, data or "transmit_complete", totalPackets
         local command = message.data[1]
         local param1 = message.data[2]
         local param2 = message.data[3]
         local param3 = message.data[4]
+        local param4 = message.data[5]
         
         if command == "transmit_packet" then
             -- Receive packet
             local seqNum = param1
             local totalPackets = param2
-            local packetData = param3
+            local expectedChecksum = param3
+            local packetData = param4
+            
+            -- Validate packet checksum
+            local adler32 = require("/shn-01/adler32")
+            local actualChecksum = adler32.run(packetData)
+            
+            if actualChecksum ~= expectedChecksum then
+                print("Packet " .. seqNum .. " checksum mismatch! Expected: " .. expectedChecksum .. ", Got: " .. actualChecksum)
+                -- Don't ACK corrupted packets - server will retransmit
+                return
+            end
             
             -- Store packet in buffer (global table for this transmission)
             if not _G.transmitBuffer then
@@ -23,17 +35,14 @@ return function()
             
             _G.transmitBuffer[seqNum] = packetData
             
-            print("Received packet " .. seqNum .. "/" .. totalPackets)
+            print("Received packet " .. seqNum .. "/" .. totalPackets .. " (checksum OK)")
             
-            -- Send ACK back to server
-            -- In client template, this would use modem.send
+            -- Send ACK back to server for valid packet
             mdm.send(message.remoteAddress, message.protocol.port, "transmit_ack", seqNum)
             
         elseif command == "transmit_complete" then
             -- Transmission complete, check for missing packets
             local totalPackets = param1
-            local checksumExpected = param2
-            local failedPackets = param3 or ""
             
             local missingPackets = {}
             for i = 1, totalPackets do
@@ -43,28 +52,13 @@ return function()
             end
             
             if #missingPackets > 0 then
-                print("Missing packets: " .. table.concat(missingPackets, ","))
-                -- Request retransmission of missing packets
-                for _, seqNum in ipairs(missingPackets) do
-                    mdm.send(message.remoteAddress, message.protocol.port, "transmit_request", seqNum)
-                end
+                print("Warning: Missing " .. #missingPackets .. " packets, server may retry")
+                -- Server will retransmit un-ACKed packets automatically
             else
                 -- Reassemble file
                 local fileContent = ""
                 for i = 1, totalPackets do
                     fileContent = fileContent .. (_G.transmitBuffer[i] or "")
-                end
-                
-                -- Validate MD5 checksum
-                local actualChecksum = md5.sumhexa(fileContent)
-                if actualChecksum ~= checksumExpected then
-                    print("Checksum mismatch! Expected: " .. tostring(checksumExpected) .. ", Got: " .. actualChecksum)
-                    -- Clear buffer and request retransmission
-                    _G.transmitBuffer = nil
-                    _G.transmitTotal = nil
-                    mdm.send(message.remoteAddress, message.protocol.port, "CHECKSUM_FAIL")
-                    beepSeq(bSeq.err)
-                    return
                 end
                 
                 print("File received successfully, " .. #fileContent .. " bytes")

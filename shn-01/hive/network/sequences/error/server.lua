@@ -15,7 +15,8 @@ return function(hive, protocol)
         end
         
         -- Log error to console with node ID prefix
-        print("<c=0xFF0000>[ERROR]</c> <c=0xFFFF00>[" .. nodeId .. "]</c> " .. tostring(errorMessage))
+        local nodePrefix = node and ("<c=0xFFFFFF>[" .. node.shortName .. "]</c>") or ""
+        print(nodePrefix .. "<c=0xFF0000>[ERROR]</c> " .. tostring(errorMessage))
         if stackTrace and stackTrace ~= "" then
             print("<c=0xFF0000>[STACK]</c> " .. tostring(stackTrace))
         end

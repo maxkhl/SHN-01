@@ -3,7 +3,7 @@ return {
   version = "1.0",
   dependencies = {},
   server = "server.lua",
-  client = "client.lua",
   description = "Structured error reporting sequence",
-  timeout = 10
+  timeout = 10,
+  sequence = false,
 }

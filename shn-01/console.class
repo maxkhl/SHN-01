@@ -485,8 +485,8 @@ function console:log(message)
 end
 
 -- Logs a error message
-function console:logError(message)
-    self:log("<c=0xFF0000>[ERROR]</c> " .. message .. "")
+function console:logError(message, prefix)
+    self:log((prefix or "") .. "<c=0xFF0000>[ERROR]</c> " .. message .. "")
 end
 
 -- Draws a horizontal graph to the screen

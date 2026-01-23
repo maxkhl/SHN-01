@@ -12,12 +12,21 @@ function node:constructor(address, nodeId, databaseData)
     self.address = address
     self.id = nodeId
     
+    -- Extract short name (e.g., "SOLAR" from "SHN-NEXUS-CEB7-SOLAR")
+    -- Get text after the last dash
+    self.shortName = nodeId:match("^.*%-(.+)$") or nodeId
+    
     -- Runtime state
     self.lastSeen = computer.uptime()
     self.bootstrapped = false
     self.bootstrapAttempts = 0
     self.bootstrapTime = nil
     self.sessions = {}  -- Track all session IDs for this node (keyed by session ID)
+
+    self.authorized = false  -- Whether the node has been authorized (e.g., via GATE protocol)
+
+    self.sessionCounter = 0
+
     
     -- Database state (optional)
     if databaseData then
@@ -29,6 +38,22 @@ function node:constructor(address, nodeId, databaseData)
         self.defective = false
         self.lastError = nil
     end
+end
+
+-- Generates a unique session ID using an incrementing counter
+function node:newSessionId()
+  self.sessionCounter = self.sessionCounter + 1
+  return self.sessionCounter
+end
+
+-- Authorize the node
+function node:authorize()
+    self.authorized = true
+    self:debugPrint("Connection authorized and acknowledged")
+end
+
+function node:debugPrint(message)
+    debugPrint(message, self)
 end
 
 -- Update last seen timestamp (called by heartbeat)

@@ -58,11 +58,18 @@ while true do
       local t = os.time() % 24000
       local h, m = math.floor(t / 1000 + 6) % 24, math.floor((t % 1000) / 1000 * 60)
 
+      local queueSize = 0
+      local outboundQueue = require("/shn-01/hive/network/messages/outboundQueue")
+      if outboundQueue then
+        queueSize = outboundQueue:getTotalCount()
+      end
+
       screen:setTitle("" .. 
       "TPS:" .. tostring(tps) .. 
       " Mem:" .. string.format("%.2f", memory) .. "%" .. 
       " Time:" .. string.format("%02d:%02d", h, m) .. 
-      " Net:" .. tostring(netMsgPerSecond) .. "msg/s")
+      " Net:" .. tostring(netMsgPerSecond) .. "msg/s" ..
+      " Queue:" .. tostring(queueSize))
 
     end
   end

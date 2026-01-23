@@ -6,53 +6,40 @@
 ]]
 local sequence = newClass()
 
--- Creates a new sequence object based on the manifest and mode
--- This is a static factory method - call as: sequenceClass.create(hive, protocol, manifestPath, serverMode)
-function sequence.create(hive, protocol, manifestPath, serverMode, ...)
+-- Creates a new sequence object based on the manifest
+-- This is a static factory method - call as: sequenceClass.create(hive, protocol, manifestPath)
+function sequence.create(hive, protocol, manifestPath, ...)
     assert(manifestPath, "No manifest path given")
     
     local manifest = include(manifestPath)
     assert(manifest, "Could not load manifest from " .. manifestPath)
 
     assert(manifest.name, "Manifest has no name")
-    assert(manifest.server or manifest.client, "Manifest has no server or client defined")
-    assert(serverMode ~= nil, "Invalid serverMode mode, expected true for server, false for client")
-    assert(type(serverMode) == "boolean", "Invalid serverMode mode, expected boolean")
+    assert(manifest.server, "Manifest has no server defined")
     
-    local sequenceFuncFactory = nil
-    if serverMode and manifest.server then
-        sequenceFuncFactory = include(getAbsolutePath(manifest.server, file.getDir(manifestPath)))
-        assert(sequenceFuncFactory, "No sequence function found for server mode " .. manifest.name)
-        assert(type(sequenceFuncFactory) == "function", "Expected sequence function factory, got " .. type(sequenceFuncFactory))
-    elseif not serverMode and manifest.client then
-        sequenceFuncFactory = include(getAbsolutePath(manifest.client, file.getDir(manifestPath)))
-        assert(sequenceFuncFactory, "No sequence function found for client mode " .. manifest.name)
-        assert(type(sequenceFuncFactory) == "function", "Expected sequence function factory, got " .. type(sequenceFuncFactory))
-    else
-        error("Sequence manifest " .. manifest.name .. " no valid mode")
-    end
+    local sequenceFuncFactory = include(getAbsolutePath(manifest.server, file.getDir(manifestPath)))
+    assert(sequenceFuncFactory, "No sequence function found for " .. manifest.name)
+    assert(type(sequenceFuncFactory) == "function", "Expected sequence function factory, got " .. type(sequenceFuncFactory))
     
     -- Call the factory function to get the actual coroutine function
-    -- Server functions receive hive and protocol, client functions receive nothing
-    local sequenceFunc = nil
-    if serverMode then
-        sequenceFunc = sequenceFuncFactory(hive, protocol)
-    else
-        sequenceFunc = sequenceFuncFactory()
-    end
+    -- Server functions receive hive and protocol
+    local sequenceFunc = sequenceFuncFactory(hive, protocol)
     assert(type(sequenceFunc) == "function", "Expected sequence function from factory, got " .. type(sequenceFunc))
     
     -- Create sequence instance with the function
     local instance = sequence:new(
-        manifest.name,
+        protocol,
+        string.upper(manifest.name),
         sequenceFunc,
         manifest.timeout,
-        manifest.timeoutCallback
+        manifest.timeoutCallback,
+        manifest.sequence
     )
     return instance
 end
 
-function sequence:constructor(name, func, timeout, timeoutCallback)
+function sequence:constructor(protocol,name, func, timeout, timeoutCallback, isSequence)
+    assert(protocol, "No protocol given")
     assert(name, "No sequence name given")
     assert(func, "No sequence function given")
     assert(type(func) == "function", "Invalid sequence function, expected function")
@@ -64,72 +51,99 @@ function sequence:constructor(name, func, timeout, timeoutCallback)
     self.timeout = timeout or 60 -- Default timeout of 60 seconds
     self.timeoutCallback = timeoutCallback
     self.sessions = {} -- Each session has its own coroutine and state
+    self.protocol = protocol
+    self.isSequence = isSequence or false
+end
 
+-- Internal method to execute a coroutine and send outbound messages
+function sequence:executeAndSend(routine, node, args, sessionId)
+    self:assert(self, "Must be called on a object")
+    
+    -- Resume the coroutine with the incoming message. Use pcall to catch errors.
+    local results = {pcall(coroutine.resume, routine, node, args)}
+    if not results[1] then
+        self:error("Error resuming coroutine: " .. tostring(results[2]))
+        return false
+    end
+    if not results[2] then
+        self:error("Coroutine error: " .. tostring(results[3]))
+        return false
+    end
+
+    -- Expect a single table or nil as the coroutine return (at results[3]).
+    local outbound = results[3]
+    if outbound ~= nil and type(outbound) ~= "table" then
+        self:error("Expected coroutine to return a table of outbound messages or nil, got " .. tostring(outbound))
+        return false
+    end
+
+    -- Validate every outbound message returned by the coroutine.
+    if outbound then
+        for _, msg in ipairs(outbound) do
+            if not isInstanceOf(msg, class("messages/outbound")) then
+                self:error("Expected outbound instance from sequence return, got " .. tostring(msg))
+                return false
+            end
+            if type(msg.send) ~= "function" then
+                self:error("Outbound message has no send() method to deliver it")
+                return false
+            end
+        end
+    end
+    
+    -- Send any responses
+    if outbound then
+        for _, msg in ipairs(outbound) do
+            msg:insertParameter(1, self.name)
+            if sessionId then
+                msg:insertParameter(2, sessionId)
+            end
+            msg:send()
+        end
+    end
+    
+    return true, outbound
 end
 
 -- Creates a new session for this sequence and processes the first message
-function sequence:createSession(firstMessage)
+function sequence:createSession(node, args)
     self:assert(self, "Must be called on a object")
     
-    -- Generate session ID with collision detection
-    local sessionId = crypto.sessionID()
-    local maxRetries = 10
-    local retryCount = 0
-    
-    -- Check for collisions across all protocols and sequences
-    local function isSessionIdUsed(id)
-        if not server or not server.protocols then
-            return false
-        end
+    -- If not a sequence, just run once without session management
+    if not self.isSequence then
+        --debugPrint("Executing non-sequence <c=0xFF00FF>" .. self.name .. "</c> (no session)", node)
         
-        for _, protocol in pairs(server.protocols) do
-            if protocol.sequences then
-                for _, seq in pairs(protocol.sequences) do
-                    if seq.sessions then
-                        for _, session in ipairs(seq.sessions) do
-                            if session.id == id then
-                                return true
-                            end
-                        end
-                    end
-                end
-            end
-        end
-        return false
+        -- Create a one-time coroutine and execute it
+        local routine = coroutine.create(self.func)
+        self:executeAndSend(routine, node, args, nil)
+        
+        return nil -- No session created
     end
     
-    -- Regenerate ID if collision detected
-    while isSessionIdUsed(sessionId) and retryCount < maxRetries do
-        debugPrint("<c=0xFF0000>Session ID collision detected: " .. sessionId .. "</c>, regenerating...")
-        sessionId = crypto.sessionID()
-        retryCount = retryCount + 1
-    end
-    
-    if retryCount >= maxRetries then
-        error("Failed to generate unique session ID after " .. maxRetries .. " attempts")
-    end
+    -- Generate unique session ID (counter-based, guaranteed unique)
+    local sessionId = node:newSessionId()
     
     local newSession = {
         id = sessionId,
         routine = coroutine.create(self.func),
         startTime = computer.uptime(),
         result = nil,
-        nodeAddress = firstMessage.remoteAddress  -- Track which node this session belongs to
+        node = node
     }
     table.insert(self.sessions, newSession)
     
     -- Register session with the node for efficient cleanup
-    if firstMessage.node then
-        firstMessage.node.sessions[newSession.id] = true
+    if node then
+        node.sessions[newSession.id] = true
     end
     
     -- Send SESSION_CREATED notification to client
-    if firstMessage.node then
+    if node then
         -- Use outbound message class when node exists
         local sessionNotification = class("messages/outbound"):new(
-            firstMessage.node,
-            firstMessage.protocol,
-            firstMessage.distance,
+            node,
+            self.protocol,
+            nil,
             "SESSION_CREATED",
             newSession.id
         )
@@ -137,13 +151,60 @@ function sequence:createSession(firstMessage)
     else
         -- Send directly via modem when node doesn't exist yet (e.g., during handshake)
         local modem = getComponent("modem")
-        modem.send(firstMessage.remoteAddress, firstMessage.protocol.port, "SESSION_CREATED", newSession.id)
+        modem.send(node.address, self.protocol.port, "SESSION_CREATED", newSession.id)
     end
     
+    --debugPrint("Started new session <c=0xFFFFFF>" .. sessionId .. "</c> for sequence <c=0xFF00FF>" .. self.name .. "</c>", node)
+    
     -- Process the first message to kick off the session
-    self:process(newSession.id, firstMessage)
+    self:process(newSession.id, args)
     
     return newSession.id
+end
+
+-- Processes a message for a specific session
+function sequence:process(sessionID, args)
+    self:assert(self, "Must be called on a object")
+    
+    -- Non-sequences don't use process(), they run directly in createSession
+    if not self.isSequence then
+        self:error("Cannot process non-sequence with session ID")
+        return
+    end
+    
+    self:assert(sessionID, "No session ID given")
+    
+    -- Find the session by ID
+    local session = self:findSession(sessionID)
+    if not session then
+        self:error("Session " .. tostring(sessionID) .. " not found")
+        return
+    end
+    
+    -- Check for timeout (removes session automatically if timed out)
+    if self:checkTimeout(session) then
+        self:error("Session " .. tostring(sessionID) .. " has timed out", session)
+        return
+    end
+    
+    -- Reset the session timeout since we're processing a message
+    session.startTime = computer.uptime()
+
+    -- Execute the coroutine and send messages
+    local success, outbound = self:executeAndSend(session.routine, session.node, args, session.id)
+    if not success then
+        self:removeSession(session.id)
+        return
+    end
+
+    -- Keep the returned table for inspection in the session.
+    session.result = outbound
+    
+    -- If coroutine finished, remove the session automatically.
+    if coroutine.status(session.routine) == "dead" then
+        debugPrint("Session <c=0xFFFFFF>" .. session.id .. "</c> ended for sequence <c=0xFF00FF>" .. self.name .. "</c>", session.node)
+        self:removeSession(session.id)
+    end
 end
 
 -- Finds a session by its ID
@@ -167,8 +228,8 @@ function sequence:removeSession(sessionID)
     for i, session in ipairs(self.sessions) do
         if session.id == sessionID then
             -- Remove from node's session registry
-            if server and server.nodes and server.nodes[session.nodeAddress] then
-                local node = server.nodes[session.nodeAddress]
+            if server and server.nodes and server.nodes[session.node.address] then
+                local node = server.nodes[session.node.address]
                 if node.sessions then
                     node.sessions[sessionID] = nil
                 end
@@ -252,77 +313,6 @@ function sequence:assert(cond, msg)
     assert(self, "Must be called on a object")
     if not cond then
         self:error(msg)
-    end
-end
-
--- Processes a message for a specific session
-function sequence:process(sessionID, message)
-    self:assert(self, "Must be called on a object")
-    self:assert(sessionID, "No session ID given")
-    self:assert(message, "No message given")
-    
-    -- Find the session by ID
-    local session = self:findSession(sessionID)
-    if not session then
-        self:error("Session " .. tostring(sessionID) .. " not found")
-        return
-    end
-    
-    -- Check for timeout (removes session automatically if timed out)
-    if self:checkTimeout(session) then
-        self:error("Session " .. tostring(sessionID) .. " has timed out", session)
-        return
-    end
-    
-    -- Reset the session timeout since we're processing a message
-    session.startTime = computer.uptime()
-
-    -- Resume the session's coroutine with the incoming message. Use pcall to catch errors.
-    -- IMPORTANT: this implementation strictly assumes the coroutine returns a single TABLE
-    -- containing outbound message objects (nothing else). We enforce that here.
-    local results = {pcall(coroutine.resume, session.routine, message)}
-    if not results[1] then
-        self:error("Error resuming coroutine in session " .. tostring(sessionID) .. ": " .. tostring(results[2]), session)
-        return
-    end
-    if not results[2] then
-        self:error("Coroutine error in session " .. tostring(sessionID) .. ": " .. tostring(results[3]), session)
-        return
-    end
-
-    -- Expect a single table as the coroutine return (at results[3]).
-    local outbound = results[3]
-    if type(outbound) ~= "table" then
-        self:error("Expected coroutine to return a table of outbound messages, got " .. tostring(outbound), session)
-        return
-    end
-
-    -- Validate every outbound message returned by the coroutine. Use ipairs to iterate
-    -- the table in order and skip any nil/holes automatically.
-    for _, msg in ipairs(outbound) do
-        if not isInstanceOf(msg, class("messages/outbound")) then
-            self:error("Expected outbound instance from sequence return, got " .. tostring(msg), session)
-            return
-        end
-        if type(msg.send) ~= "function" then
-            self:error("Outbound message has no send() method to deliver it", session)
-            return
-        end
-    end
-
-    -- Keep the returned table for inspection in the session.
-    session.result = outbound
-    
-    -- If coroutine finished, remove the session automatically.
-    if coroutine.status(session.routine) == "dead" then
-        self:removeSession(session.id)
-    end
-    
-    -- Send any responses
-    if outbound then
-        for _, msg in ipairs(outbound) do
-            msg:send()
-        end
     end
 end
 

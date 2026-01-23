@@ -2,6 +2,8 @@
 -- This script is downloaded to RAM after Stage 1 handshake completes
 -- Provides heartbeat, session management, error handling, and bootstrap
 
+print("Stage 2 Client initializing...")
+
 -- Audible sequences for status reporting
 local bSeq = {
   success = { {1600, 0.15}, {20, 0.1}, {1200, 0.3} },
@@ -11,6 +13,7 @@ local bSeq = {
   disc = { {1000, 0.1}, {20, 0.07}, {650, 0.15}, {20, 0.07}, {300, 0.4} },
   crit = { {2000, 0.08}, {180, 0.3}, {180, 0.3}, {80, 0.6} }
 }
+
 
 -- Beeps in the given sequence
 function beepSeq(sequence)
@@ -35,9 +38,9 @@ if not mdm.isOpen(heartbeatPort) then mdm.open(heartbeatPort) end
 if not mdm.isOpen(corePort) then mdm.open(corePort) end
 
 -- Enhanced error handler with restart logic
-function error(msg)
+function criticalError(msg)
   beepSeq(bSeq.crit)
-  send(corePort, "ERROR", tostring(msg))
+  send(corePort, "ERROR", nil, tostring(msg))
   
   local now = computer.uptime()
   if now - lastErrorTime > errorWindow then
@@ -55,14 +58,14 @@ end
 
 -- Debug message sender
 function debug(msg)
-  send(corePort, "INFO", tostring(msg))
+  send(corePort, "debug", nil, "info", tostring(msg))
 end
 
 -- Runs code in the provided environment
 function run(code, environment)
   local data, err = load(code, nil, nil, environment)
   if not data then
-    error("Failed to compile " .. string.sub(code, 1, 20) .. ": " .. tostring(err))
+    criticalError("Failed to compile " .. string.sub(code, 1, 20) .. ": " .. tostring(err))
   end
   if data then
     return data()
@@ -70,75 +73,62 @@ function run(code, environment)
 end
 
 
--- Bootstrap request trigger
-function requestBootstrap()
-  send(corePort, "bootstrap", node.id)
-end
 
--- Request bootstrap immediately
 beepSeq(bSeq.success)
-requestBootstrap()
-debug("Testing SESSION_CREATED handling")  -- Placeholder
+debug("Node <c=0xFFFFFF>" .. tostring(node.id) .. "</c> operational.")
 
+print("Stage 2 ready and taking over...")
+
+local heartbeatSessionId = nil
 -- Main heartbeat and message handling loop
 while true do
   -- Send heartbeat if connected
   if hive.address then
     local now = computer.uptime()
     if now - lastHeartbeat >= heartbeatInterval then
-      if heartbeatSessionId then
-        mdm.send(hive.address, heartbeatPort, heartbeatSessionId, "HEARTBEAT", node.id)
-      else
-        mdm.send(hive.address, heartbeatPort, "heartbeat", "HEARTBEAT", node.id)
-      end
+      mdm.send(hive.address, heartbeatPort, "HEARTBEAT", heartbeatSessionId, node.id)
       lastHeartbeat = now
     end
   end
   
-  for _, e in ipairs(sleep(1.0)) do
-    local signal, locAddr, remAddr, port, dist, command, d0, d1, d2, d3 = table.unpack(e)
-    
-    if signal == "modem_message" and remAddr ~= node.address then
-      -- Handle various server commands
-      if command == "SESSION_CREATED" then
-        -- Track session ID
-        local sessionId = d0
-        local sequenceName = d1
-        if sequenceName == "heartbeat" then
-          heartbeatSessionId = sessionId
-        end
-        if sequenceName then
-          sessionRegistry[sequenceName] = sessionId
-        end
-        
-      elseif command == "server_restart" and d0 == hive.id then
-        -- Server restarting, reset connection
-        beepSeq(bSeq.disc)
-        hive.address = nil
-        heartbeatSessionId = nil
-        sessionRegistry = {}
-        computer.shutdown(true)  -- Reboot to re-download Stage 2
-        
-      elseif command == "restart" and d0 == node.id then
-        -- Direct restart command
-        beepSeq(bSeq.disc)
-        computer.shutdown(true)
-        
-      elseif command == "timeout" and d0 == node.id then
-        -- Server timed us out, reboot to reconnect
-        beepSeq(bSeq.warn)
-        computer.shutdown(true)
-        
-      elseif command == "HEARTBEAT_ACK" and d0 == node.id then
-        -- Heartbeat acknowledged, connection healthy
-        
-      elseif command == "run" and d0 == node.id then
-        -- Execute code sent from server
-        local code = d1
-        local success, result = pcall(run, code, _G)
-        if not success then
-          error("Run failed: " .. tostring(result))
-        end
+  local events = sleep(1.0)
+  for _, event in ipairs(events) do
+    if event[1] == "modem_message" then
+      local _, locAddr, remAddr, port, dist, sequence, sessionid, command, d0, d1, d2, d3 = table.unpack(event)
+      
+      if remAddr ~= node.address then
+        -- Handle various server commands
+        if sequence == "SESSION_CREATED" then
+          
+        elseif sequence == "SERVER_RESTART" then
+          -- Server restarting, reset connection
+          beepSeq(bSeq.disc)
+          computer.shutdown(true)  -- Reboot to re-download Stage 2
+          
+        elseif command == "RESTART" and d0 == node.id then
+          -- Direct restart command
+          beepSeq(bSeq.disc)
+          computer.shutdown(true)
+          
+        elseif command == "TIMEOUT" and d0 == node.id then
+          -- Server timed us out, reboot to reconnect
+          beepSeq(bSeq.warn)
+          computer.shutdown(true)
+          
+        elseif sequence == "HEARTBEAT" and command == "HEARTBEAT_ACK" then
+          -- Heartbeat acknowledged, connection healthy
+          heartbeatSessionId = sessionid
+          
+        elseif command == "run" and d0 == node.id then
+          -- Execute code sent from server
+          local code = d1
+          local success, result = pcall(run, code, _G)
+          if not success then
+            criticalError("Run failed: " .. tostring(result))
+          end
+        else
+          print("UknwCom port=" .. tostring(port) .. " seq=" .. tostring(sequence) .. " sid=" .. tostring(sessionid) .. " com=" .. tostring(command) .. " d0=" .. tostring(d0) .. " d1=" .. tostring(d1) .. " d2=" .. tostring(d2) .. " d3=" .. tostring(d3))
+        end        
       end
     end
   end

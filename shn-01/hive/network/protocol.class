@@ -50,72 +50,87 @@ function protocol:start()
             if sender == modem.address then
                 return
             end
-            
-            -- Check if node is connected (except for GATE protocol which handles handshake)
-            if thisPort ~= 2011 and thisProtocol.server and thisProtocol.server.isNodeConnected then
-                if not thisProtocol.server:isNodeConnected(sender) then
-                    console:log("<c=0xFF0000>Rejected message from non-connected node " .. sender .. " on protocol " .. thisName .. "</c>\n  Message: " .. table.concat({...}, ", "))
-                    return
-                end
-            end
-            
-            local message = thisProtocol:createMessage(sender, thisProtocol, distance, ...)
+
+            local message = thisProtocol:createInboundMessage(sender, thisProtocol, distance, ...)
             local args = {...}
             
-            -- First arg is either a sequence name (new session) or session ID (existing session)
-            local identifier = args[1]
-            
-            -- Ignore server-to-client notification messages
-            if identifier == "SESSION_CREATED" or identifier == "handshake_ack" or identifier == "transmit_ack" then
-                debugPrint("Ignoring server-to-client notification: " .. tostring(identifier))
-                return
-            end
-            
-            if thisProtocol.sequences[identifier] then
-                -- This is a new sequence request - create a session
-                local sequence = thisProtocol.sequences[identifier]
-                
-                local sessionID = sequence:createSession(message)
-                debugPrint("Started new session <c=0xFFFFFF>" .. sessionID .. "</c> for sequence <c=0xFF00FF>" .. identifier .. "</c>")
-                
-                -- Note: createSession calls process internally which sends responses
-            else
-                -- This should be a session ID - find which sequence owns it
-                local foundSequence = nil
-                for _, seq in pairs(thisProtocol.sequences) do
-                    if seq:findSession(identifier) then
-                        foundSequence = seq
-                        break
-                    end
-                end
-                
-                if foundSequence then
-                    -- Process the message in the existing session and send responses
-                    local outbound = foundSequence:process(identifier, message)
-                    if outbound then
-                        for _, msg in ipairs(outbound) do
-                            msg:send()
-                        end
-                    end
-                else
-                    error("Unknown message identifier '" .. tostring(identifier) .. "' in protocol " .. thisName)
-                end
+            -- Get node object from sender address if available            
+            local node = thisProtocol.server and thisProtocol.server.nodes and thisProtocol.server.nodes[sender] or nil
+
+            -- If no node found and this is a handshake attempt, create a temporary node
+            if not node and thisName == "GATE" and args[1] == "handshake" and args[4] == thisProtocol.server.id then
+                local nodeId = args[3] -- this should be the node ID in handshake message
+                node = thisProtocol.server:connectNode(nodeId, sender)
+                if not node then
+                    console:log("<c=0xFF0000>Failed to create node for handshake from " .. sender .. " on protocol " .. thisName .. " with ID " .. nodeId .. "</c>")
+                    return
+                end            
             end
 
-            if thisProtocol.handleMessage then
-                thisProtocol:handleMessage(receiver, sender, distance, ...)
+            if not node then
+                local msgArgs = {...}
+                for i = 1, #msgArgs do msgArgs[i] = tostring(msgArgs[i]) end
+                console:log("<c=0xFF0000>Rejected message from unknown node " .. sender .. " on protocol " .. thisName .. "</c>\n  Message: " .. table.concat(msgArgs, ", "))
+                return
+            end
+
+            if node and node.isDefective and node:isDefective() then
+                local msgArgs = {...}
+                for i = 1, #msgArgs do msgArgs[i] = tostring(msgArgs[i]) end
+                console:log("<c=0xFF0000>Rejected message from defective node " .. node.id .. " on protocol " .. thisName .. "</c>\n  Message: " .. table.concat(msgArgs, ", "))
+                return
+            end
+
+            local nodePrefix = node and ("<c=0xFFFFFF>[" .. node.shortName .. "]</c>") or ""
+            
+            
+            -- First arg is either a sequence name (new session) or session ID (existing session)
+            local sequenceName = string.upper(args[1] or "")
+            local sessionID = args[2]
+            args = {select(3, ...)} -- Remove identifier from args and pack into table
+            
+            if sequenceName == "" then
+                error("No message identifier provided in protocol " .. thisName, 0, nodePrefix)
+                return
+            end            
+            
+            local sequence = thisProtocol.sequences[sequenceName]
+            if sequence then
+                if sessionID == nil then
+                    -- This is a new sequence request - create a session
+
+                    local sessionID = sequence:createSession(node or sender, args)
+                    
+                    -- Note: createSession calls process internally which sends responses
+                else
+                    -- This should be a session ID - find which sequence owns it                    
+                    if sequence:findSession(sessionID) then
+                        -- Process the message in the existing session and send responses
+                        --debugPrint("Returning for session <c=0xFFFFFF>" .. tostring(sessionID) .. "</c> in sequence <c=0xFF00FF>" .. sequenceName .. "</c>", node)
+                        local outbound = sequence:process(sessionID, args)
+                        if outbound then
+                            for _, msg in ipairs(outbound) do
+                                msg:send()
+                            end
+                        end
+                    else
+                        error("No session with ID <c=0xFFFFFF>" .. tostring(sessionID) .. "</c> found in sequence <c=0xFF00FF>" .. sequenceName .. "</c> for protocol " .. thisName, 0, nodePrefix)
+                    end
+                end
+            else
+                error("Unknown sequence name '" .. tostring(sequenceName) .. "' in protocol " .. thisName, 0, nodePrefix)
             end
         end
     end)
 
+    -- Show protocol initialization info
     debugPrint(tostring(self))
-
     for name, seq in pairs(self.sequences) do
         debugPrint("  > " .. tostring(seq))
     end
 end
 
-function protocol:createMessage(remoteAddress, protocol, distance, ...)
+function protocol:createInboundMessage(remoteAddress, protocol, distance, ...)
     assert(self, "Must be called on a object")
     -- For inbound messages, we need to find if this node is connected
     local node = self.server and self.server.nodes and self.server.nodes[remoteAddress] or nil

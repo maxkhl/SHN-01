@@ -10,8 +10,8 @@ function command:constructor(hive)
     
     -- Create sequences FIRST
     local sequenceClass = class("../sequence")
-    local handshakeSeq = sequenceClass.create(hive, self, getAbsolutePath("../sequences/handshake/manifest.lua"), true)
-    local disconnectSeq = sequenceClass.create(hive, self, getAbsolutePath("../sequences/disconnect/manifest.lua"), true)
+    local handshakeSeq = sequenceClass.create(hive, self, getAbsolutePath("../sequences/handshake/manifest.lua"))
+    local disconnectSeq = sequenceClass.create(hive, self, getAbsolutePath("../sequences/disconnect/manifest.lua"))
     
     -- Initialize protocol properties directly
     self.server = hive

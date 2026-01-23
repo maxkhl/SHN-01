@@ -43,11 +43,11 @@ function print(msg)
 end
 
 -- Overrides the default error function to use the console
-function error(msg, depth)
+function error(msg, depth, prefix)
     depth = depth or 0
     local info = debug.getinfo(3 + depth, "Sl") -- Get info about the *caller*
     console:logError((info.short_src or "unknown") ..
-    ":" .. (info.currentline or "unknown") .. "<c=0xFF00FF>></c>" .. msg)
+    ":" .. (info.currentline or "unknown") .. "<c=0xFF00FF>></c>" .. msg, prefix)
 end
 
 inject("splash.lua")

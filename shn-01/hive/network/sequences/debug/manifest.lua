@@ -5,5 +5,6 @@ return {
   server = "server.lua",
   client = "client.lua",
   description = "Debug messages from the hive network",
-  timeout = 60
+  timeout = 60,
+  sequence = false,
 }

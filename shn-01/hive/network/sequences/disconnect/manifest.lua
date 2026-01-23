@@ -5,5 +5,6 @@ return {
   server = "server.lua",
   client = "client.lua",
   description = "Graceful node disconnection sequence",
-  timeout = 10
+  timeout = 10,
+  sequence = false,
 }

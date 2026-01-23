@@ -10,7 +10,7 @@ function command:constructor(hive)
     local sequenceClass = class("../sequence")
     
     local sequences = {
-        sequenceClass.create(hive, self, getAbsolutePath("../sequences/transmit/manifest.lua"), true)
+        sequenceClass.create(hive, self, getAbsolutePath("../sequences/transmit/manifest.lua"))
     }
     
     -- Initialize protocol properties directly

@@ -152,8 +152,14 @@ end
 
 
 -- Reads a file and expands any include calls recursively
-function file.readWithIncludesMinified(path, minify, seen, sub)
+-- @param path: file path to read
+-- @param minify: optional minification function
+-- @param wrap: if false, returns raw code without function wrapper (for EEPROM code)
+-- @param seen: internal parameter for circular include detection
+-- @param sub: internal parameter to track if this is a sub-include
+function file.readWithIncludesMinified(path, minify, wrap, seen, sub)
   seen = seen or {}
+  if wrap == nil then wrap = false end  -- Default to wrapping for backward compatibility
 
   path = file.normalizePath(path)
   if seen[path] then
@@ -170,13 +176,32 @@ function file.readWithIncludesMinified(path, minify, seen, sub)
   local localBuffer = {}
 
   for line in source:gmatch("[^\r\n]+") do
-    local includePath = line:match('^%s*include%s*%(?%s*["\']([^"\']+)["\']%s*%)?%s*$')
-    if includePath then
-      local resolved = file.joinPath(baseDir, includePath)
-      local includedWrapped = file.readWithIncludesMinified(resolved, minify, seen, true)
-      table.insert(localBuffer, includedWrapped)
+    -- Check if this is a standalone include line
+    local standaloneInclude = line:match('^%s*include%s*%(?%s*["\']([^"\']+)["\']%s*%)?%s*$')
+    if standaloneInclude then
+      -- Replace entire line with included content
+      local resolved = file.joinPath(baseDir, standaloneInclude)
+      local includedContent = file.readWithIncludesMinified(resolved, minify, false, seen, true)
+      table.insert(localBuffer, includedContent)
     else
-      table.insert(localBuffer, line)
+      -- Check for inline include() calls like: var = include("file")
+      local includePath = line:match('include%s*%(%s*["\']([^"\']+)["\']%s*%)')
+      if includePath then
+        -- Read the file first (outside pattern matching to avoid yield issues)
+        local resolved = file.joinPath(baseDir, includePath)
+        local includedContent = file.readWithIncludesMinified(resolved, minify, false, seen, true)
+        -- Find the include statement and replace it with IIFE
+        local includePattern = 'include%s*%(%s*["\']' .. includePath:gsub('[%-%.]', '%%%1') .. '["\']%s*%)'
+        local startPos, endPos = line:find(includePattern)
+        if startPos then
+          local modifiedLine = line:sub(1, startPos - 1) .. "(function() " .. includedContent .. " end)()" .. line:sub(endPos + 1)
+          table.insert(localBuffer, modifiedLine)
+        else
+          table.insert(localBuffer, line)
+        end
+      else
+        table.insert(localBuffer, line)
+      end
     end
   end
 
@@ -184,7 +209,11 @@ function file.readWithIncludesMinified(path, minify, seen, sub)
     local combined = table.concat(localBuffer, "\n")
     local sizeuncompressed = #combined
     local minified = minify and minify(combined) or combined
-    return "return (function()\n" .. minified .. "\nend)()", sizeuncompressed
+    if wrap then
+      return "return (function()\n" .. minified .. "\nend)()", sizeuncompressed
+    else
+      return minified, sizeuncompressed
+    end
   else
     return table.concat(localBuffer, "\n")
   end

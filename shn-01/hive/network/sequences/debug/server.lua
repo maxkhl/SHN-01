@@ -1,26 +1,22 @@
 -- Server-side debug sequence function
 -- This function is called to create the coroutine for handling debug messages
 return function(hive, protocol)
-    return function(message)
+    return function(node, data)
         -- Server-side debug sequence logic
         -- Message format: "debug", command (INFO/WARN), message_text
-        local command = message.data[2]
-        local debugMessage = message.data[3] or ""
-        
-        -- Get node ID if available
-        local nodeId = "unknown"
-        if hive.nodes[message.remoteAddress] then
-            nodeId = hive.nodes[message.remoteAddress].id
-        end
+        local command = string.upper(data[1] or "")
+        local debugMessage = data[2] or ""
+                
+        local nodePrefix = node and node.shortName and ("<c=0xFFFFFF>[" .. node.shortName .. "]</c>") or ""
         
         if command == "INFO" or string.upper(tostring(command)) == "INFO" then
-            print("<c=0x00FF00>[INFO]</c> <c=0xFFFF00>[" .. nodeId .. "]</c> " .. tostring(debugMessage))
+            print(nodePrefix .. "<c=0x00FF00>[INFO]</c> " .. tostring(debugMessage))
         elseif command == "WARN" or string.upper(tostring(command)) == "WARN" then
-            print("<c=0xFFFF00>[WARN]</c> <c=0xFFFF00>[" .. nodeId .. "]</c> " .. tostring(debugMessage))
+            print(nodePrefix .. "<c=0xFFFF00>[WARN]</c> " .. tostring(debugMessage))
         elseif command == "ERROR" or string.upper(tostring(command)) == "ERROR" then
-            error("<c=0xFF0000>[ERROR]</c> <c=0xFFFF00>[" .. nodeId .. "]</c> " .. tostring(debugMessage))
+            print(nodePrefix .. "<c=0xFF0000>[ERROR]</c> " .. tostring(debugMessage))
         else
-            print("<c=0xFFFF00>[DEBUG]</c> <c=0xFFFF00>[" .. nodeId .. "]</c> " .. tostring(command) .. " " .. tostring(debugMessage))
+            print(nodePrefix .. "<c=0xFFFF00>[DEBUG]</c> " .. tostring(command) .. " " .. tostring(debugMessage))
         end
         
         -- No response needed for debug messages

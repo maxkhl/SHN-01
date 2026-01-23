@@ -18,6 +18,7 @@ return function(hive, protocol)
                     node,
                     protocol,
                     message.distance,
+                    false,
                     "HEARTBEAT_ACK",
                     nodeId
                 )
@@ -47,6 +48,7 @@ return function(hive, protocol)
                     targetNode,
                     protocol,
                     message.distance,
+                    false,
                     "RELAY_MSG",
                     sourceNodeId,
                     relayMessage

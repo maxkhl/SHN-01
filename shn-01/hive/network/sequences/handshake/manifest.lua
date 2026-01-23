@@ -5,5 +5,6 @@ return {
   server = "server.lua",
   client = "client.lua",
   description = "Initial handshake sequence. Starts protocol verification.",
-  timeout = 60
+  timeout = 60,
+  sequence = true,
 }

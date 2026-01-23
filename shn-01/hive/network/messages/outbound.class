@@ -5,19 +5,26 @@
 ]]
 local outbound = newClass(class("../message"))
 
-function outbound:constructor(node, protocol, distance, ...)
+function outbound:constructor(node, protocol, distance, highPriority, ...)
     assert(self, "Must be called on a object")
     self.node = node
-    self.base.constructor(self,node.address, protocol, distance, ...)
+    self.highPriority = highPriority or false
+    self.base.constructor(self,node.address, protocol, distance or 999999, ...)
+end
+
+-- Inserts a parameter at the specified position in the data array
+function outbound:insertParameter(position, value)
+    assert(self, "Must be called on a object")
+    assert(position, "No position given")
+    assert(position >= 1 and position <= #self.data + 1, "Position out of bounds")
+    table.insert(self.data, position, value)
 end
 
 -- Sends the outbound message over the network
 function outbound:send()
     assert(self, "Must be called on a object")
-    local modem = getComponent("modem")
-    local dataStr = table.concat(self.data, ", "):gsub("[\n\r]", " ")
-    debugPrint("Sending message to <c=0xFFFFFF>" .. self.remoteAddress .. "</c> on port <c=0xFFFFFF>" .. self.protocol.port .. "</c>: " .. (#dataStr > 50 and (dataStr:sub(1, 50) .. "...") or dataStr))
-    modem.send(self.remoteAddress, self.protocol.port, table.unpack(self.data))
+    local outboundQueue = require("outboundQueue")
+    outboundQueue:enqueue(self)
 end
 
 function outbound:__tostring()

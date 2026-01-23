@@ -4,14 +4,16 @@ server.nodes = {}
 local database = require("/systems/database.lua")
 
 -- Helper function to check if debug mode is enabled
-function isDebugEnabled()
-    return database:getKey("shn01", "hiveDebug") == true
+function getDebugLevel()
+    return database:getKey("shn01", "hiveDebug") or 0
 end
 
 -- Debug print that only shows when debug mode is on
-function debugPrint(msg)
-    if isDebugEnabled() then
-        print("<c=0xFFFF00>[DEBUG]</c> " .. tostring(msg))
+function debugPrint(msg, node, level)
+    if level == nil then level = 1 end
+    if getDebugLevel() >= level then
+        local nodePrefix = node and node.shortName and ("<c=0xFFFFFF>[" .. node.shortName .. "]</c>") or ""
+        print(nodePrefix .. "<c=0xFFFF00>[DEBUG]</c> " .. tostring(msg))
     end
 end
 
@@ -63,7 +65,7 @@ function server:connectNode(nodeId, address)
     -- Create and store node object
     local nodeObj = new(getAbsolutePath("network/node.class"), address, nodeId, databaseData)
     self.nodes[address] = nodeObj
-    print("<c=0x00AAFF>● Node connected:</c> <c=0xFFFFFF>" .. nodeId .. "</c>")
+    print("<c=0xFFFFFF>[" .. nodeObj.shortName .. "]</c> <c=0x00AAFF>Connected</c> as <c=0xFFFFFF>" .. nodeId .. "</c> from <c=0xFFFFFF>" .. address .. "</c>")
     
     return nodeObj
 end
@@ -77,6 +79,7 @@ print("<c=0xFF00FF>Initializing subsystems...</c>")
 
 -- Makes sure we have a valid hiveId and provides commands around it
 local hiveId = database:getKey("shn01", "hiveId")
+server.id = hiveId
 
 -- Generates a readable, cyberpunk-themed UID with semantic components
 -- Format: SHN-[HANDLE]#[NODE] (e.g., SHN-NEXUS#u00000001)
@@ -119,7 +122,7 @@ if nodes and #nodes > 0 then
     for _, nodeData in pairs(nodes) do
         local nodeId = type(nodeData) == "table" and nodeData.id or nodeData
         -- Broadcast on GATE port (2011) to trigger node restarts
-        modem.broadcast(2011, "server_restart", getHiveId())
+        modem.broadcast(2011, "SERVER_RESTART", getHiveId())
     end
 end
 
@@ -247,6 +250,56 @@ console:addCommand("HIVE.NODE.WIPE", "Removes all nodes from the hive", function
     console:log("All nodes wiped")
 end)
 
+console:addCommand("HIVE.QUEUE.SETRATE", "Set the outbound message queue rate limit (messages per second)", function(rate)
+    if not rate or rate == "" then
+        local currentRate = database:getKey("shn01", "queueRateLimit") or 10
+        console:log("Current queue rate limit: <c=0xFFFF00>" .. currentRate .. "</c> messages/second")
+        return
+    end
+    
+    local rateNum = tonumber(rate)
+    if not rateNum or rateNum < 1 or rateNum > 1000 then
+        console:logError("Invalid rate limit. Must be between 1 and 1000 messages/second")
+        return
+    end
+    
+    database:setKey("shn01", "queueRateLimit", rateNum, true)
+    console:log("<c=0x00FF00>Queue rate limit set to <c=0xFFFF00>" .. rateNum .. "</c> messages/second</c>")
+end)
+
+console:addCommand("HIVE.QUEUE.STATUS", "Show outbound message queue status", function()
+    local outboundQueue = require("network/messages/outboundQueue")
+    local highCount = #outboundQueue.highPriorityQueue
+    local lowCount = #outboundQueue.lowPriorityQueue
+    local totalCount = highCount + lowCount
+    local rateLimit = database:getKey("shn01", "queueRateLimit") or 10
+    local droppedCount = outboundQueue.droppedCount
+    
+    console:log("<c=0xFF00FF>========== QUEUE STATUS ==========</c>")
+    console:log("Rate limit: <c=0xFFFF00>" .. rateLimit .. "</c> messages/second")
+    console:log("Queue capacity: <c=0xFFFF00>" .. outboundQueue.maxCapacity .. "</c> messages")
+    console:log("")
+    console:log("High priority queue: <c=0xFFFF00>" .. highCount .. "</c> messages")
+    console:log("Low priority queue: <c=0xFFFF00>" .. lowCount .. "</c> messages")
+    console:log("Total queued: <c=0xFFFF00>" .. totalCount .. "</c> / <c=0xFFFF00>" .. outboundQueue.maxCapacity .. "</c>")
+    console:log("")
+    
+    if droppedCount > 0 then
+        console:log("Dropped messages: <c=0xFF0000>" .. droppedCount .. "</c>")
+    else
+        console:log("Dropped messages: <c=0x00FF00>0</c>")
+    end
+    
+    local utilization = (totalCount / outboundQueue.maxCapacity) * 100
+    local statusColor = "0x00FF00"
+    if utilization > 75 then
+        statusColor = "0xFF0000"
+    elseif utilization > 50 then
+        statusColor = "0xFFFF00"
+    end
+    console:log("Capacity utilization: <c=" .. statusColor .. ">" .. string.format("%.1f", utilization) .. "%</c>")
+end)
+
 
 -- Generates a node UID for secondary nodes
 -- Format: [HIVEID]-[UNIQUEID] (e.g., SHN-u00000001)
@@ -329,7 +382,7 @@ console:addCommand("HIVE.NODE.RESTART", "Restarts a specific node (Node ID as pa
             
             -- Send fire-and-forget restart message via GATE protocol (port 2011)
             local modem = getComponent("modem")
-            modem.send(address, 2011, "restart", nodeId)
+            modem.send(address, 2011, "RESTART", nodeId)
             
             console:log("Restart command sent")
             return
@@ -356,23 +409,22 @@ function isNodeConnectedById(nodeId)
     return false, nil
 end
 
-console:addCommand("HIVE.DEBUG", "Toggle debug mode ON/OFF", function(mode)
+console:addCommand("HIVE.DEBUG", "Set debug level (0=off, 1=basic, 2=advanced)", function(mode)
     if not mode or mode == "" then
-        local current = database:getKey("shn01", "hiveDebug")
-        console:log("Current debug mode: " .. tostring(current and "ON" or "OFF"))
+        local current = database:getKey("shn01", "hiveDebug") or 0
+        console:log("Current debug level: " .. tostring(current))
         return
     end
     
-    mode = string.upper(mode)
-    if mode == "ON" then
-        database:setKey("shn01", "hiveDebug", true, true)
-        console:log("<c=0x00FF00>Debug mode enabled</c>")
-    elseif mode == "OFF" then
-        database:setKey("shn01", "hiveDebug", false, true)
-        console:log("<c=0xFFFF00>Debug mode disabled</c>")
-    else
-        console:logError("Invalid parameter. Use ON or OFF")
+    local level = tonumber(mode)
+    if level == nil or level < 0 or level > 2 then
+        console:logError("Invalid debug level. Use 0 (off), 1 (basic), or 2 (advanced)")
+        return
     end
+    
+    database:setKey("shn01", "hiveDebug", level, true)
+    local levelNames = {[0] = "disabled", [1] = "basic", [2] = "advanced"}
+    console:log("<c=0x00FF00>Debug level set to " .. level .. " (" .. levelNames[level] .. ")</c>")
 end)
 
 console:addCommand("HIVE.NODE.STATUS", "Shows detailed status of all nodes", function()
@@ -415,7 +467,7 @@ console:addCommand("HIVE.NODE.STATUS", "Shows detailed status of all nodes", fun
             console:log("  Status: <c=0x00FF00>(connected)</c>")
             console:log("  Address: " .. tostring(address))
             if lastSeen then
-                local timeSince = os.time() - lastSeen
+                local timeSince = computer.uptime() - lastSeen
                 console:log("  Last seen: " .. timeSince .. "s ago")
             end
             if bootstrapped and bootstrapTime then
@@ -511,15 +563,15 @@ globalEvents.onTick:subscribe(function()
         
         for address, node in pairs(server.nodes) do
             local timeSinceLastSeen = computer.uptime() - node.lastSeen
-            debugPrint("  Node <c=0xFFFFFF>" .. node.id .. "</c>: last seen <c=0xFFFFFF>" .. string.format("%.1f", timeSinceLastSeen) .. "s</c> ago (timeout at <c=0xFFFFFF>90s</c>)")
+            debugPrint("Last seen <c=0xFFFFFF>" .. string.format("%.1f", timeSinceLastSeen) .. "s</c> ago (timeout at <c=0xFFFFFF>90s</c>)", node)
             
             if node:isStale(90) then
-                table.insert(staleNodes, {address = address, id = node.id, timeSince = timeSinceLastSeen})
+                table.insert(staleNodes, node)
             end
         end
         
         for _, stale in ipairs(staleNodes) do
-            console:log("<c=0xFF0000>● Node disconnected:</c> <c=0xFFFFFF>" .. stale.id .. "</c> <c=0xFF0000>(timeout)</c>")
+            console:log("<c=0xFFFFFF>[" .. stale.shortName .. "]</c> <c=0xFF0000>Disconnected</c> <c=0xFF0000>(timeout)</c>")
             -- Notify the node about timeout so it can reconnect
             local modem = getComponent("modem")
             if modem then
