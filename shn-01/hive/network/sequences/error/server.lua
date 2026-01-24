@@ -24,7 +24,6 @@ return function(hive, protocol)
         -- Update lastError in database if node is known
         if node then
             -- Save error to database
-            local database = require("/systems/database.lua")
             local nodes = database:getKey("shn01", "nodes") or {}
             
             for i, dbNode in ipairs(nodes) do

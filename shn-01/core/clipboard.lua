@@ -106,7 +106,6 @@ globalEvents.onDrop:subscribe(function(screen, x, y)
     drawFullSelection()
 end)
 
-local keyboard = require("/systems/keyboard.lua")
 globalEvents.onKeyDown:subscribe(function(char, code)
     if code == keyboard.keys.c and keyboard.isControlDown() and mark.start and mark.ending then
         copyToClipboard()

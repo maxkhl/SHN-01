@@ -4,11 +4,11 @@ globalEvents.onSystemReady:subscribe(function()
 
 -- Load and register programs
     local programsPath = "/programs"
-    local fileList = fileSystem().list(programsPath)
+    local fileList = file.system().list(programsPath)
     
     for _, dir in ipairs(fileList) do
         local manifestPath = programsPath .. "/" .. dir .. "/manifest.lua"
-        if fileSystem().exists(manifestPath) then
+        if file.system().exists(manifestPath) then
             local manifest = include(manifestPath)
             
             -- Register commands

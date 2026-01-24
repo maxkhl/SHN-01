@@ -39,23 +39,32 @@ baseDir = ""
 -- STARTING WITH BOOTSTRAPPING THE BASELIB
 -- THIS WILL ENABLE THE SYSTEM TO LOAD FILES AND CLASSES PROPERLY
 -- BASELIB CONTAINS ALL THE NECESSARY FUNCTIONS TO LOAD AND MANAGE THE SYSTEM
-local baseLibPath = "/baselib.lua"
+
+-- PARAMETERIZED FILE LOADER FOR BOOTSTRAP
 local fileSystem = component.proxy(computer.getBootAddress())
-local stream, reason = fileSystem.open(baseLibPath, "r")
-if not stream then error("Failed to open " .. baseLibPath .. ": " .. tostring(reason)) end
-local chunks = {}
-local newChunk = fileSystem.read(stream, 4096)
-while newChunk do
-    table.insert(chunks, newChunk)
-    newChunk = fileSystem.read(stream, 4096)
+local function loadAndExecuteFile(filePath, chunkSize)
+    chunkSize = chunkSize or 4096
+    local stream, reason = fileSystem.open(filePath, "r")
+    if not stream then error("Failed to open " .. filePath .. ": " .. tostring(reason)) end
+    local chunks = {}
+    local newChunk = fileSystem.read(stream, chunkSize)
+    while newChunk do
+        table.insert(chunks, newChunk)
+        newChunk = fileSystem.read(stream, chunkSize)
+    end
+    fileSystem.close(stream)
+    local code = table.concat(chunks)
+    local loaded, loadError = load(code, "=" .. filePath, nil, _G)
+    if not loaded then
+        error("Failed to load " .. filePath .. ": " .. tostring(loadError))
+    end
+    return loaded()
 end
-fileSystem:close(stream)
-local baseLibCode = table.concat(chunks)
-local baseLib = load(baseLibCode, "=" .. baseLibPath, nil, _G)
-if not baseLib then
-    error("Failed to load baselib from " .. baseLibPath)
-end
-baseLib()
+
+loadAndExecuteFile("/shn-01/core/boot/file.lua")
+loadAndExecuteFile("/shn-01/core/boot/include.lua")
+loadAndExecuteFile("/shn-01/core/boot/require.lua")
+loadAndExecuteFile("/shn-01/core/boot/oop.lua")
 
 -- INJECT THE CORE AND START SHN-01
-inject("/shn-01/core.lua")
+inject("/shn-01/core/boot.lua")

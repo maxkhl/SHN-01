@@ -1,8 +1,6 @@
 server = {}
 server.nodes = {}
 
-local database = require("/systems/database.lua")
-
 -- Helper function to check if debug mode is enabled
 function getDebugLevel()
     return database:getKey("shn01", "hiveDebug") or 0
@@ -75,6 +73,7 @@ local modem = getComponent("modem")
 modem.open(20)
 
 server.protocols = {}
+server.outboundQueue = include("network/messages/outboundQueue.lua")
 print("<c=0xFF00FF>Initializing subsystems...</c>")
 
 -- Makes sure we have a valid hiveId and provides commands around it
@@ -127,7 +126,7 @@ if nodes and #nodes > 0 then
 end
 
 -- Initialize protocols
-local fileSystem = fileSystem()
+local fileSystem = file.system()
 for k, v in pairs(fileSystem.list(getAbsolutePath("network/protocols"))) do
     if v:sub(-6) == ".class" then
         local protocol = new(getAbsolutePath("network/protocols/" .. v), server)
@@ -268,20 +267,19 @@ console:addCommand("HIVE.QUEUE.SETRATE", "Set the outbound message queue rate li
 end)
 
 console:addCommand("HIVE.QUEUE.STATUS", "Show outbound message queue status", function()
-    local outboundQueue = require("network/messages/outboundQueue")
-    local highCount = #outboundQueue.highPriorityQueue
-    local lowCount = #outboundQueue.lowPriorityQueue
+    local highCount = #server.outboundQueue.highPriorityQueue
+    local lowCount = #server.outboundQueue.lowPriorityQueue
     local totalCount = highCount + lowCount
     local rateLimit = database:getKey("shn01", "queueRateLimit") or 10
-    local droppedCount = outboundQueue.droppedCount
+    local droppedCount = server.outboundQueue.droppedCount
     
     console:log("<c=0xFF00FF>========== QUEUE STATUS ==========</c>")
     console:log("Rate limit: <c=0xFFFF00>" .. rateLimit .. "</c> messages/second")
-    console:log("Queue capacity: <c=0xFFFF00>" .. outboundQueue.maxCapacity .. "</c> messages")
+    console:log("Queue capacity: <c=0xFFFF00>" .. server.outboundQueue.maxCapacity .. "</c> messages")
     console:log("")
     console:log("High priority queue: <c=0xFFFF00>" .. highCount .. "</c> messages")
     console:log("Low priority queue: <c=0xFFFF00>" .. lowCount .. "</c> messages")
-    console:log("Total queued: <c=0xFFFF00>" .. totalCount .. "</c> / <c=0xFFFF00>" .. outboundQueue.maxCapacity .. "</c>")
+    console:log("Total queued: <c=0xFFFF00>" .. totalCount .. "</c> / <c=0xFFFF00>" .. server.outboundQueue.maxCapacity .. "</c>")
     console:log("")
     
     if droppedCount > 0 then
@@ -290,7 +288,7 @@ console:addCommand("HIVE.QUEUE.STATUS", "Show outbound message queue status", fu
         console:log("Dropped messages: <c=0x00FF00>0</c>")
     end
     
-    local utilization = (totalCount / outboundQueue.maxCapacity) * 100
+    local utilization = (totalCount / server.outboundQueue.maxCapacity) * 100
     local statusColor = "0x00FF00"
     if utilization > 75 then
         statusColor = "0xFF0000"
@@ -331,7 +329,7 @@ console:addCommand("HIVE.NODE.ADD", "Adds a new node to the hive\nParameters:\n1
     -- Validate script file exists if provided
     if scriptFilename and scriptFilename ~= "" then
         local scriptPath = getAbsolutePath("node-scripts/" .. scriptFilename)
-        local fs = fileSystem()
+        local fs = file.system()
         if not fs.exists(scriptPath) then
             console:log("<c=0xFF0000>Script file not found: " .. scriptPath .. "</c>")
             return

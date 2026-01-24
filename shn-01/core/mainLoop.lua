@@ -59,9 +59,8 @@ while true do
       local h, m = math.floor(t / 1000 + 6) % 24, math.floor((t % 1000) / 1000 * 60)
 
       local queueSize = 0
-      local outboundQueue = require("/shn-01/hive/network/messages/outboundQueue")
-      if outboundQueue then
-        queueSize = outboundQueue:getTotalCount()
+      if server and server.outboundQueue then
+        queueSize = server.outboundQueue:getTotalCount()
       end
 
       screen:setTitle("" .. 

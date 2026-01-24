@@ -1,8 +1,8 @@
-local database = {}
+database = {}
 
 database.buffer = {}
-database.baseFolder = "/systems/database/"
-local util = require("/systems/minify/util.lua")
+database.baseFolder = "/shn-01/data/"
+local util = include("minify/util.lua")
 
 function database:setKey(application, key, value, doSave)
     doSave = doSave or false
@@ -34,7 +34,7 @@ function database:setKey(application, key, value, doSave)
 end
 
 function database:save(application)
-    local fs = fileSystem()
+    local fs = file.system()
 
     if not fs.exists(database.baseFolder) then
         fs.makeDirectory(database.baseFolder)
@@ -99,7 +99,7 @@ function database:loadOnce(application)
 end
 
 function database:load(application)
-    local fs = fileSystem()
+    local fs = file.system()
     local path = self:GetApplicationPath(application)
 
     if not fs.exists(path) then
@@ -159,5 +159,3 @@ end
 function database:GetApplicationPath(application)
     return database.baseFolder .. string.lower(application) .. ".dat"
 end
-
-return database

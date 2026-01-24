@@ -29,7 +29,7 @@ console:addCommand("COMPUTER.INFO.DEVICES","Returns the computers device infos",
 end)
 
 console:addCommand("HDD.SPACE", "Returns space information about the OS hard drive", function()
-  local fileSystem = fileSystem()
+  local fileSystem = file.system()
   local spaceTotal = fileSystem.spaceTotal()
   local spaceUsed = fileSystem.spaceUsed()
   print("Total: " .. tostring(spaceTotal) .. " bytes")

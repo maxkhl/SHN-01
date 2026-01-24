@@ -21,8 +21,6 @@ outboundQueue.droppedCount = 0
 outboundQueue.tokensAvailable = 0
 outboundQueue.lastTickTime = computer.uptime()
 
-local database = require("/systems/database.lua")
-
 -- Get current rate limit from database (messages per second)
 function outboundQueue:getRateLimit()
     return database:getKey("shn01", "queueRateLimit") or 10

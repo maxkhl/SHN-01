@@ -1,10 +1,6 @@
 -- Server-side transmit sequence function
 -- This function is called to create the coroutine for handling file transmit messages
 return function(hive, protocol)
-
-    local minify = require("/systems/minify")
-    local adler32 = require("/shn-01/adler32")
-    local timer = require("/systems/timer")
     return function(node, args)
         
         -- Server-side file transmit logic
@@ -39,7 +35,7 @@ return function(hive, protocol)
             -- Read file content (or use cached content for retry)
             local fileContent = sessionState.fileContent
             if not fileContent then
-                local fs = fileSystem()
+                local fs = file.system()
                 local fullPath = getAbsolutePath(filePath)
                 
                 if not fs.exists(fullPath) then
@@ -81,7 +77,7 @@ return function(hive, protocol)
                 local startPos = (seqNum - 1) * packetSize + 1
                 local endPos = math.min(seqNum * packetSize, fileSize)
                 local packetData = fileContent:sub(startPos, endPos)
-                local packetChecksum = adler32.run(packetData)
+                local packetChecksum = crypto.adler32(packetData)
                 
                 local response = class("../../messages/outbound"):new(
                     node,
@@ -166,7 +162,7 @@ return function(hive, protocol)
                         local startPos = (seqNum - 1) * sessionState.packetSize + 1
                         local endPos = math.min(seqNum * sessionState.packetSize, sessionState.fileSize)
                         local packetData = sessionState.fileContent:sub(startPos, endPos)
-                        local packetChecksum = adler32.run(packetData)
+                        local packetChecksum = crypto.adler32(packetData)
                         
                         local response = class("../../messages/outbound"):new(
                             node,

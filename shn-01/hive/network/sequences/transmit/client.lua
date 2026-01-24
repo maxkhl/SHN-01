@@ -18,8 +18,7 @@ return function()
             local packetData = param4
             
             -- Validate packet checksum
-            local adler32 = require("/shn-01/adler32")
-            local actualChecksum = adler32.run(packetData)
+            local actualChecksum = crypto.adler32(packetData)
             
             if actualChecksum ~= expectedChecksum then
                 print("Packet " .. seqNum .. " checksum mismatch! Expected: " .. expectedChecksum .. ", Got: " .. actualChecksum)

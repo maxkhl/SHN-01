@@ -2,15 +2,11 @@ local gpu = getComponent("gpu")
 local screenWidth, screenHeight = gpu.getResolution()
 local glitchChars = {"#", "%", "&", "$", "@", "░", "▒", "▓", "█", "?"}
 
-local database = require("/systems/database.lua")
 local doGlitch = database:getKey("shn01", "glitch")
 if doGlitch == nil then
     database:setKey("shn01", "glitch", true, true)
     doGlitch = true
 end
-
-
-local timer = require("/systems/timer.lua")
 
 local rand = math.random
 local insert = table.insert

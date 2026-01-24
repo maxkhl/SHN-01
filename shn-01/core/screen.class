@@ -2,8 +2,6 @@ local screen = newClass()
 
 local gpu = getComponent("gpu")
 
-local database = require("/systems/database")
-
 -- Constructor for the screen class
 function screen:constructor()
 
@@ -96,8 +94,6 @@ local function drawFormattedLine(x, y, text, scrollX, defaultColor, backgroundCo
 end
 
 
-
-local keyboard = require("/systems/keyboard.lua")
 
 local function setCharAt(str, index, char, padChar)
     padChar = padChar or " " -- default padding is a space

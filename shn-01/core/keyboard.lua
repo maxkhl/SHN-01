@@ -1,4 +1,4 @@
-local keyboard = {}
+keyboard = {}
 
 keyboard.pressedChars = {}
 keyboard.pressedCodes = {}
@@ -196,5 +196,3 @@ keyboard.keys.numpaddecimal   = 0x53
 keyboard.keys.numpadcomma     = 0xB3
 keyboard.keys.numpadenter     = 0x9C
 keyboard.keys.numpadequals    = 0x8D
-
-return keyboard

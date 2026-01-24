@@ -4,7 +4,6 @@
         It handles rendering and updating the console on the screen.                
 ]]
 local console = newClass(class("view"))
-local database = require("/systems/database")
 
 function console:constructor(screen)
     assert(self, "Must be called on a object")
@@ -512,8 +511,6 @@ function console:horizontalGraph(value, maxValue)
     self:log(leftPad .. "|" .. bar .. "|" .. " " .. percentStr .. rightPad)
 end
 
-
-local keyboard = require("/systems/keyboard.lua")
 -- Handles key events
 function console:onKey(char, code)
     if code == keyboard.keys.up and not keyboard:isShiftDown() then

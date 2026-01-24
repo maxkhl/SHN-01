@@ -1,4 +1,3 @@
-local database = require("/systems/database.lua")
 local skipSplash = database:getKey("shn01", "skipSplash")
 if skipSplash == nil then
     database:setKey("shn01", "skipSplash", true, true)
@@ -6,7 +5,6 @@ if skipSplash == nil then
 end
 
 if skipSplash then
-    local timer = require("/systems/timer.lua")
     timer.delay(function() globalEvents.onSystemReady:fire() end) -- Notify that the system is ready immediately
 else
     -- Enable glitches during the splash screen only (they're disabled in the console)
@@ -49,7 +47,6 @@ else
     end
 
 
-    local timer = require("/systems/timer.lua")
     timer.add(10, function()
         globalEvents.onSystemReady:fire() -- Notify that the system is ready after the splash screen
         -- disable runtime splash glitches after the splash completes

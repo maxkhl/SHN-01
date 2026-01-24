@@ -1,0 +1,4 @@
+queueRateLimit:number=10␞skipSplash:boolean=true␞nodes:table={
+    "SHN-NEXUS-CEB7-SOLAR",
+    "SHN-NEXUS-CEB7-SOLAR-SENSORS"
+}␞hiveId:string=SHN-NEXUS-CEB7␞persistentId:number=38␞hiveDebug:number=0␞glitch:boolean=true␞

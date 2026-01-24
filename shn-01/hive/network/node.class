@@ -86,7 +86,6 @@ function node:markDefective(error)
     self.lastError = error or "Unknown error"
     
     -- Update database
-    local database = require("/systems/database.lua")
     local nodes = database:getKey("shn01", "nodes") or {}
     
     for i, dbNode in ipairs(nodes) do
@@ -147,7 +146,6 @@ end
 
 -- Static method: Load node data from database
 function node.loadFromDatabase(nodeId)
-    local database = require("/systems/database.lua")
     local nodes = database:getKey("shn01", "nodes") or {}
     
     for _, dbNode in ipairs(nodes) do
@@ -163,7 +161,6 @@ end
 function node.saveToDatabase(nodeData)
     assert(nodeData.id, "Node data must have an id")
     
-    local database = require("/systems/database.lua")
     local nodes = database:getKey("shn01", "nodes") or {}
     
     local found = false
@@ -184,13 +181,11 @@ end
 
 -- Static method: Get all nodes from database
 function node.getAllFromDatabase()
-    local database = require("/systems/database.lua")
     return database:getKey("shn01", "nodes") or {}
 end
 
 -- Static method: Remove node from database
 function node.removeFromDatabase(nodeId)
-    local database = require("/systems/database.lua")
     local nodes = database:getKey("shn01", "nodes") or {}
     
     for i, dbNode in ipairs(nodes) do

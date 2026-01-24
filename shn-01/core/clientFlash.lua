@@ -1,8 +1,5 @@
 local clientFlash = {}
 
-local minify = require("../systems/minify")
-local adler32 = require("adler32") -- Using adler32 module for checksum functions
-
 -- Helper function to generate flash code for a node
 local function generateFlashCode(nodeId)
     if not nodeId or nodeId == "" then
@@ -112,8 +109,8 @@ console:addCommand("FLASH.NODE", "Flashes an EEPROM with bootstrap code for a sp
         
         -- Validate with Adler-32 checksum
         local written = eeprom.get()
-        local originalChecksum = adler32.run(minified)
-        local writtenChecksum = adler32.run(written)
+        local originalChecksum = crypto.adler32(minified)
+        local writtenChecksum = crypto.adler32(written)
         
         if originalChecksum == writtenChecksum then
             console:log("<c=0x00FF00>EEPROM flashed successfully!</c>")
@@ -156,7 +153,7 @@ console:addCommand("FLASH.NODE.FILE", "Flashes bootstrap code for a node to a fi
     end
     
     -- Write to file
-    local fs = fileSystem()
+    local fs = file.system()
     
     local file, err = fs.open(outputPath, "w")
     if not file then

@@ -3,8 +3,7 @@
         This class represents the NANO file editor in the SHN-01 system.
         It handles rendering and updating the editor on the screen.
 ]]
-local nano = newClass(class("/shn-01/view"))
-local database = require("/systems/database")
+local nano = newClass(class("/shn-01/core/view"))
 
 
 
@@ -40,7 +39,6 @@ function nano:render(startY, endY)
     return output
 end
 
-local keyboard = require("/systems/keyboard.lua")
 -- Handles key events
 function nano:onKey(char, code)
 end

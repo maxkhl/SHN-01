@@ -1,55 +1,55 @@
-local t = {}
+timer = {}
 
 -- contains timers for scheduling function calls
-t.timers = {}
+timer.timers = {}
 
 -- Adds a new timer
 -- Delay is the time in seconds (no decimals) it takes for callback to be called
 --   Seconds is relative here. It will rarely be exact seconds as processing time is added on top. So if another callback is called during delay-time and it takes x seconds to process you can add that to your wait time
 -- Callback is the callback function
 -- Reset is the amount that should be set for delay once delay is over (no decimals)
-function t.add(delay, callback, reset)
-  for _, timer in ipairs(t.timers) do
+function timer.add(delay, callback, reset)
+  for _, timer in ipairs(timer.timers) do
       if timer.callback == callback then
           return nil -- Callback already exists; don't add it again
       end
   end
-  table.insert(t.timers, {
+  table.insert(timer.timers, {
       delay = math.ceil(delay),
       callback = callback,
       reset = reset and math.ceil(reset) or nil
   })
-  return #t.timers
+  return #timer.timers
 end
 
 -- Removes a timer to a certain callback function
-function t.remove(callback)
+function timer.remove(callback)
   if callback then
-    for i, dat in pairs(t.timers) do
-      if dat.callback == callback then
-        t.timers[i] = nil
+    for i, dat in pairs(timer.timers) do
+      if datimer.callback == callback then
+        timer.timers[i] = nil
       end
     end
   end
 end
 
-t.delayedFunctions = {}
+timer.delayedFunctions = {}
 -- Delays a function to the next update loop.
-function t.delay(callback)
+function timer.delay(callback)
   if type(callback) ~= "function" then
     error("TIMER.DELAY: Callback must be a function")
     return false
   end
-  table.insert(t.delayedFunctions, callback)
+  table.insert(timer.delayedFunctions, callback)
 end
 
 
 -- Update loop
-t.oldTime = computer.uptime()
-function t.update()
-  local passedTime = computer.uptime() - t.oldTime
-  t.oldTime = computer.uptime()
-  for key, timer in pairs(t.timers) do
+timer.oldTime = computer.uptime()
+function timer.update()
+  local passedTime = computer.uptime() - timer.oldTime
+  timer.oldTime = computer.uptime()
+  for key, timer in pairs(timer.timers) do
     if timer.delay > 0 then
       timer.delay = timer.delay - passedTime
     end
@@ -59,28 +59,26 @@ function t.update()
       if timer.reset then
         timer.delay = timer.reset
       else
-        t.timers[key] = nil
+        timer.timers[key] = nil
       end
     end
   end
 
   -- Handle delayed functions
-  for id, callback in pairs(t.delayedFunctions) do
+  for id, callback in pairs(timer.delayedFunctions) do
     local success, reason = pcall(callback)
     if not success then
       error("TIMER.DELAY: Error in delayed function: " .. tostring(reason))
     end
-    t.delayedFunctions[id] = nil -- Remove after execution
+    timer.delayedFunctions[id] = nil -- Remove after execution
   end
 end
-globalEvents.onTick:subscribe(t.update)
+globalEvents.onTick:subscribe(timer.update)
 
 
 
 console:addCommand("TIMER.LIST", "Lists currently running timers", function()
-  for key, timer in pairs(t.timers) do
+  for key, timer in pairs(timer.timers) do
     print(tostring(key) .. ' - ' .. tostring(timer.delay) .. ' - ' .. tostring(timer.callback) .. ' - ' .. tostring(timer.reset))
   end
 end)
-
-return t

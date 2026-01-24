@@ -1,9 +1,4 @@
 commandHistory:table={
-    "flash sizetest medium",
-    "nano",
-    "commands",
-    "hive node status",
-    "flash node SHN-NEXUS-CEB7-SOLAR",
     "flash sizetest LOW",
     "flash sizetest MEDIUM",
     "flash sizetest HIGH",
@@ -48,5 +43,10 @@ commandHistory:table={
     "hive queue setrate",
     "hive queue setrate 2",
     "hive queue setrate 1",
-    "hive queue status"
+    "hive queue status",
+    "klˆ",
+    "hive queue status",
+    "hive queue setrate 10",
+    "flash node file SHN-NEXUS-CEB7-SOLAR",
+    "nano init.lua"
 }‚êû

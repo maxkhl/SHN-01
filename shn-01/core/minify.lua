@@ -1,4 +1,4 @@
-local minify = {}
+minify = {}
 
 -- Parses an entire file
 function minify.parseFile(filePath)
@@ -150,5 +150,3 @@ function minify.parseCheap(source)
 
   return table.concat(out)
 end
-
-return minify

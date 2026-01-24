@@ -1,64 +1,18 @@
---[[#####################BASELIB#####################]]--
--- Base library providing include, inject, class, new, require and file handling functionalities
-
---[[#####################INCLUDE/INJECT#####################]]
--- Loads a lua file, executes it and returns the result (works with relative paths)
-function include(relativePath, origin, env)
-    origin = origin or baseDir
-
-
-    local code, fullPath = file.read(relativePath, origin)
-
-    local newOrigin = fullPath:match("^(.*)/") or "."
-
-    if not env then      
-        env = setmetatable({}, { __index = _G })
-    end
-
-    local injected = ([[
-    local baseDir, include, inject, new, class, require, getAbsolutePath = ...
-    %s
-    ]]):format(code)
-
-
-    local chunk, err = load(injected, "=" .. fullPath, nil, env)
-    if not chunk then
-        error("Failed to compile " .. fullPath .. ": " .. tostring(err))
-    end
-
-    if chunk then
-        return chunk( 
-            newOrigin,
-            function(path) return include(path, newOrigin, env) end,
-            function(path) return inject(path, newOrigin) end,
-            function(path, ...) return new(getAbsolutePath(path, newOrigin), ...) end,
-            function(path) return class(getAbsolutePath(path, newOrigin)) end,
-            function(path) return require(getAbsolutePath(path, newOrigin)) end,
-            function(path, originSub) return getAbsolutePath(path, originSub or newOrigin) end
-        )
-    end
-end
-
--- Injects a lua file in the local environment
-function inject(relativePath, origin)
-  include(relativePath, origin, _G)
-end
-
 --[[#####################FILE#####################]]--
 file = {}
 
 -- Returns the file system the os is running on
-function fileSystem()
+function file.system()
     return component.proxy(computer.getBootAddress())
 end
 
 -- Reads a file and returns its content
-function file.read(relativePath, origin)
+function file.read(relativePath, origin, errorDepth)
     if not relativePath then error("No file path given") return end
-    local fileSystem = fileSystem()
+    local fileSystem = file.system()
     local path = getAbsolutePath(relativePath, origin)
     local stream, reason = fileSystem.open(path, "r")
-    if not stream then error("Failed to open " .. path .. ": " .. tostring(reason)) end
+    if not stream then error("Failed to open " .. path .. ": " .. tostring(reason), (errorDepth or 0) + 2) end
 
     local chunks = {}
     local newChunk = fileSystem.read(stream, 4096)
@@ -114,7 +68,7 @@ end
 -- Reads a file and returns its content as a table of lines
 function file.readLines(absolutePath)
     if not absolutePath then error("No file path given") end
-    local fileSystem = fileSystem()
+    local fileSystem = file.system()
     local stream, reason = fileSystem.open(absolutePath, "r")
     if not stream then error("Failed to open " .. absolutePath .. ": " .. tostring(reason)) end
 
@@ -219,162 +173,4 @@ function file.readWithIncludesMinified(path, minify, wrap, seen, sub)
   end
 
   -- Wrap this file in a return (function() ... end)() expression
-end
-
---[[#####################OBJECT ORIENTATION#####################]]--
--- Object oriented programming in Lua
-function newClass(base)
-    local cls = {}
-    cls.__index = cls
-
-    function cls:new(...)
-        local instance = setmetatable({}, {
-            __index = cls,
-            __tostring = function(self)
-                if type(self.__tostring) == "function" then
-                    return self:__tostring()
-                else
-                    return "<" .. tostring(cls) .. " instance>"
-                end
-            end
-        })
-        if instance.constructor then
-            instance:constructor(...)
-        end
-        return instance
-    end
-
-    if base then
-        setmetatable(cls, { __index = base })
-        cls.base = base
-    end
-
-    return cls
-end
-
--- Checks if an object is an instance of a given class (supports inheritance)
-function isInstanceOf(obj, classRef)
-    if type(obj) ~= "table" then return false end
-    local mt = getmetatable(obj)
-    if not mt or type(mt.__index) ~= "table" then return false end
-    local cls = mt.__index
-    while cls do
-        if cls == classRef then return true end
-        cls = cls.base
-    end
-    return false
-end
-
--- Contains all loaded classes
-classBuffer = {}
-
-
--- Creates a new instance of the given class lua file (needs to return a table with a new function)
-function new(path, ...)
-    if not path then error("No class path given") return end
-    local extension = file.getExtension(path)
-    if extension and extension ~= "class" then
-        error("Invalid class path: " .. path .. ", expected .class")
-        return
-    elseif not extension then
-        path = path .. ".class"
-    end
-    if not baseDir then
-        error("No base directory set")
-        return
-    end
-
-    local fullPath = getAbsolutePath(path, baseDir)
-    if classBuffer[fullPath] and classBuffer[fullPath].new then
-        return classBuffer[fullPath]:new(...)
-    end
-
-    local result = include(path)
-
-    classBuffer[fullPath] = result
-
-    if not result then
-        error("Failed to load class " .. path)
-        return
-    end
-    if not result.new then
-        error("Class " .. path .. " does not have a new function")
-        return
-    end
-
-    return result:new(...)
-end
-
-
-classBuffer = {}
-
--- Returns the given class 
-function class(path)
-    if not path then error("No class path given") return end
-
-    local extension = file.getExtension(path)
-    if extension and extension ~= "class" then
-        error("Invalid class path: " .. path .. " extension " .. extension .. ", expected .class")
-    elseif not extension then
-        path = path .. ".class"
-    end    
-    if not baseDir then
-        error("No base directory set")
-    end
-    local fullPath = getAbsolutePath(path, baseDir)
-    if classBuffer[fullPath] then
-        return classBuffer[fullPath]
-    else
-        local result = include(path)
-        if not result then
-            error("Failed to load class " .. path)
-            return
-        end
-        if not result.new then
-            error("Class " .. path .. " does not have a new function")
-            return
-        end
-        classBuffer[fullPath] = result
-        return result
-    end
-end
-
---[[#####################REQUIRE#####################]]--
--- Buffer containing required lua files results
-requireBuffer = {}
-
--- Loads a lua file, executes it exactly once and returns the result (watch out for nested requires)
-function require(path)
-    if not path then error("No path given") return end
-    local extension = file.getExtension(path)
-    if extension and extension ~= "lua" then
-        error("Invalid script path: " .. path .. ", expected .lua")
-    elseif not extension then
-        path = path .. ".lua"
-    end
-    if not baseDir then
-        error("No base directory set")
-    end
-
-    local fullPath = getAbsolutePath(path, baseDir)
-    if requireBuffer[fullPath] then
-        return requireBuffer[fullPath]
-    end
-    
-    local result = include(path)
-    if fullPath then
-        requireBuffer[fullPath] = result
-    end
-    return result
-end
-
--- frees a required path
-function requireFree(path)
-    if not path then error("No path given") return end
-    local fullPath = getAbsoluteFilePath(path, baseDir)
-    if requireBuffer[fullPath] then
-        requireBuffer[fullPath] = nil
-        return true
-    end
-    return false
 end

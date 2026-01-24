@@ -15,7 +15,7 @@ Big-picture architecture (what to know)
 Project conventions and patterns (concrete, discoverable rules)
 - Use `inject("file.lua")` to include project-local modules that expect to run in the injected environment (see `shn-01/core.lua`). Don't replace it with arbitrary `require` unless the target module explicitly uses `require`.
 - Class files: protocol implementations use the `.class` suffix and are instantiated with `new(...)` (see `programs/server/main.lua` where files ending with `.class` are loaded and `protocol:start()` is called).
-- Path helpers: the codebase uses helpers like `getAbsolutePath()` and `fileSystem().list()` to discover resources. When adding new files, follow the same directory layout so the dynamic loaders pick them up.
+- Path helpers: the codebase uses helpers like `getAbsolutePath()` and `file.system().list()` to discover resources. When adding new files, follow the same directory layout so the dynamic loaders pick them up.
 - I/O / logging: `shn-01/core.lua` overrides `print` and `error` to route to `console:log` / `console:logError` — rely on that console for debug output.
 
 How to add a protocol or sequence (example)
