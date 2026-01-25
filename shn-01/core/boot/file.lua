@@ -130,8 +130,11 @@ function file.readWithIncludesMinified(path, minify, wrap, seen, sub)
   local localBuffer = {}
 
   for line in source:gmatch("[^\r\n]+") do
+    -- Skip comment lines to avoid matching include() in comments
+    local isComment = line:match("^%s*%-%-")
+    
     -- Check if this is a standalone include line
-    local standaloneInclude = line:match('^%s*include%s*%(?%s*["\']([^"\']+)["\']%s*%)?%s*$')
+    local standaloneInclude = not isComment and line:match('^%s*include%s*%(?%s*["\']([^"\']+)["\']%s*%)?%s*$')
     if standaloneInclude then
       -- Replace entire line with included content
       local resolved = file.joinPath(baseDir, standaloneInclude)
@@ -139,7 +142,7 @@ function file.readWithIncludesMinified(path, minify, wrap, seen, sub)
       table.insert(localBuffer, includedContent)
     else
       -- Check for inline include() calls like: var = include("file")
-      local includePath = line:match('include%s*%(%s*["\']([^"\']+)["\']%s*%)')
+      local includePath = not isComment and line:match('include%s*%(%s*["\']([^"\']+)["\']%s*%)')
       if includePath then
         -- Read the file first (outside pattern matching to avoid yield issues)
         local resolved = file.joinPath(baseDir, includePath)

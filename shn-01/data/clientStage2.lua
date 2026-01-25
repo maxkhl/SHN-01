@@ -14,6 +14,9 @@ local bSeq = {
   crit = { {2000, 0.08}, {180, 0.3}, {180, 0.3}, {80, 0.6} }
 }
 
+include("../core/boot/file.lua")
+include("../core/boot/include.lua")
+include("../core/boot/oop.lua")
 
 -- Beeps in the given sequence
 function beepSeq(sequence)
